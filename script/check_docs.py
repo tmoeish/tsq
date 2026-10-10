@@ -54,6 +54,7 @@ RETIRED: Final = (
     (re.compile(r"@TABLE|@RESULT"), "注解是 `//tsq:table` / `//tsq:result` 指令行"),
     (re.compile(r"\b[A-Z][A-Za-z0-9]*__Cols\b"), "列表是 `TableXxx.Columns()` / `ResultXxx.Columns()`"),
     (re.compile(r"\b[A-Z][a-z][A-Za-z0-9]*_[A-Z][A-Za-z0-9]*\b"), "列是表的字段：`TableXxx.Field`"),
+    (re.compile(r"\.WithTable\("), "列换表是 `col.Rebind(source)`，可空列是 `tsq.RebindNull`"),
 )
 RETIRED_GO_DIRS: Final = (Path("cmd"), Path("internal/cmd"), Path("internal/parser"))
 TSQ_SYMBOL: Final = re.compile(r"\btsq\.([A-Z][A-Za-z0-9_]*)")

@@ -33,10 +33,10 @@ var Notes = notesHandle.Define(TableSpec[note, int64]{
 	AutoIncrement: true,
 	Indexes:       []IndexSpec{{Name: "ft_notes_title_body", FullText: true, Columns: []string{"title", "body"}}},
 	ColumnSpecs: []tsqdialect.ColumnSpec{
-		{Name: "id", Type: tsqdialect.ColumnType{Kind: tsqdialect.KindInt, Bits: 64}, PrimaryKey: true, AutoIncrement: true},
-		{Name: "body", Type: tsqdialect.ColumnType{Kind: tsqdialect.KindString, Size: 64, Nullable: true}},
-		{Name: "title", Type: tsqdialect.ColumnType{Kind: tsqdialect.KindString, Size: 64, Nullable: true}},
-		{Name: "rating", Type: tsqdialect.ColumnType{Kind: tsqdialect.KindInt, Bits: 64, Nullable: true}},
+		{Name: "id", Type: tsqdialect.ColumnType{Kind: tsqdialect.ColumnKindInt, Bits: 64}, PrimaryKey: true, AutoIncrement: true},
+		{Name: "body", Type: tsqdialect.ColumnType{Kind: tsqdialect.ColumnKindString, Size: 64, Nullable: true}},
+		{Name: "title", Type: tsqdialect.ColumnType{Kind: tsqdialect.ColumnKindString, Size: 64, Nullable: true}},
+		{Name: "rating", Type: tsqdialect.ColumnType{Kind: tsqdialect.ColumnKindInt, Bits: 64, Nullable: true}},
 	},
 })
 
@@ -220,19 +220,19 @@ func TestReadingAValueThatCanBeNullNeedsANullableField(t *testing.T) {
 	inner := Select(nullLabel(orderNote)).From(Users).LeftJoin(Orders, Order_UserID.EQ(User_ID))
 	cte := CTE("labels", inner)
 
-	outer := Select(label(orderNote.WithTable(cte))).From(cte).MustBuild()
+	outer := Select(label(orderNote.Rebind(cte))).From(cte).MustBuild()
 	if _, err := outer.List(ctx, rt); err == nil || !strings.Contains(err.Error(), "can be NULL") {
 		t.Errorf("nullable CTE column = %v", err)
 	}
 
-	if _, err := Select(nullLabel(orderNote.WithTable(cte))).From(cte).MustBuild().List(ctx, rt); err != nil {
+	if _, err := Select(nullLabel(orderNote.Rebind(cte))).From(cte).MustBuild().List(ctx, rt); err != nil {
 		t.Errorf("nullable CTE column into a nullable field = %v", err)
 	}
 
 	// A nullable column the CTE coalesces is not NULL through it: the CTE decides,
 	// not the column's declaration.
 	coalesced := CTE("bodies", Select(MapInto(Coalesce(Note_Body, Val("none")), func(r *labelRow) *string { return &r.Name })).From(Notes))
-	through := Select(MapInto(Note_Body.WithTable(coalesced), func(r *labelRow) *string { return &r.Name })).From(coalesced).MustBuild()
+	through := Select(MapInto(Note_Body.Rebind(coalesced), func(r *labelRow) *string { return &r.Name })).From(coalesced).MustBuild()
 
 	if through.scanErr != nil {
 		t.Errorf("coalesced CTE column = %v; want it readable into a string", through.scanErr)
@@ -247,7 +247,7 @@ func TestCTEColumnNamesAreDistinct(t *testing.T) {
 	most := MapInto(Max(Order_Amount), func(r *labelRow) *int64 { return &r.Count })
 	cte := CTE("totals", Select(sum, most).From(Orders))
 
-	_, err := Select(MapInto(Order_Amount.WithTable(cte), func(r *labelRow) *int64 { return &r.Count })).From(cte).Build()
+	_, err := Select(MapInto(Order_Amount.Rebind(cte), func(r *labelRow) *int64 { return &r.Count })).From(cte).Build()
 	if err == nil || !strings.Contains(err.Error(), "two columns named amount") {
 		t.Fatalf("Build = %v; want the repeated name refused", err)
 	}
@@ -273,14 +273,14 @@ func TestNotInOverANullableSubqueryIsRefused(t *testing.T) {
 	}
 }
 
-// TestRebindNullKeepsTheNullableType covers WithTable on a NullColumn, which
+// TestRebindNullKeepsTheNullableType covers Rebind on a NullColumn, which
 // returns a Column: the rebound column needed a type assertion to be read into a
 // nullable field or compared as nullable again.
 func TestRebindNullKeepsTheNullableType(t *testing.T) {
 	alias := Notes.As("n")
 
 	rating := RebindNull(Note_Rating, alias)
-	if _, err := Select(Note_ID.WithTable(alias), rating).From(alias).Where(rating.IsNull()).Build(); err != nil {
+	if _, err := Select(Note_ID.Rebind(alias), rating).From(alias).Where(rating.IsNull()).Build(); err != nil {
 		t.Fatalf("query over the rebound column: %v", err)
 	}
 

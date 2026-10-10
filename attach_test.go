@@ -158,8 +158,8 @@ var (
 		PrimaryKey:    Tag_ID,
 		AutoIncrement: true,
 		ColumnSpecs: []tsqdialect.ColumnSpec{
-			{Name: "id", Type: tsqdialect.ColumnType{Kind: tsqdialect.KindInt, Bits: 64}, PrimaryKey: true, AutoIncrement: true},
-			{Name: "owner", Type: tsqdialect.ColumnType{Kind: tsqdialect.KindInt, Bits: 64, Nullable: true}},
+			{Name: "id", Type: tsqdialect.ColumnType{Kind: tsqdialect.ColumnKindInt, Bits: 64}, PrimaryKey: true, AutoIncrement: true},
+			{Name: "owner", Type: tsqdialect.ColumnType{Kind: tsqdialect.ColumnKindInt, Bits: 64, Nullable: true}},
 		},
 	})
 )

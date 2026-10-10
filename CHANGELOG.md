@@ -29,7 +29,7 @@ v5 是一个重新设计过的版本，不提供对 v4 的兼容层：没有别�
 - `Query.Iter(ctx, db, args...)` 返回 `iter.Seq2[*O, error]`，逐行扫描，大结果集不必整体读进内存；`break` 会结束查询。追踪操作名为 `iter`。
 - `tsq.DialectOf(db)`：任何执行器（包括 `WithTx` 回调里的）的方言，事务里也能用 `dialect.Supports` 选查询形状；此前只有 `*Runtime.Dialect()`。
 - 阶段上直接有 `Iter` 和 `PageKeyset`（此前只有 `Page`，其余要先 `MustBuild()`）。
-- `tsq.RebindNull(col, table)`：`NullColumn` 换表后仍是 `NullColumn`（`WithTable` 返回 `Column`，生成代码此前要做类型断言）。
+- `tsq.RebindNull(col, table)`：`NullColumn` 换表后仍是 `NullColumn`（`Rebind` 返回 `Column`，生成代码此前要做类型断言）。
 - 追踪里硬删除是 `hard_delete`、恢复是 `restore`，和软删除 `delete` 分开（此前软硬删除同名）。
 
 ### 破坏性变更
@@ -53,7 +53,7 @@ v5 是一个重新设计过的版本，不提供对 v4 的兼容层：没有别�
 - 生成的表是一个结构体 `XxxTable`：内嵌 `*tsq.TableOf[Xxx, K]`（K 是主键类型），**每列一个字段**——`TableCourse.Title` 而不是包级变量 `Course_Title`，`TableCourse.Columns()` 而不是 `Course__Cols`。表名、列、主键、自增、托管列、搜索列、物理 schema 与索引都在这一个值上。**行结构体不再实现任何接口**，`Owner` / `Result` 标记接口删除。
 - 一个构造函数依次建表、建列、`Define`，引用 `TableXxx` 的东西天然在表完成之后初始化，没有声明顺序要记，`DeclareTable` 删除。手写表同样用 `tsq.NewTable[R, K]` / `tsq.NewColumn` / `Define`（有 `deleted_at` 的表用 `tsq.NewSoftDeleteTable[R, K]`，列绑到它内嵌的 `TableOf`，`Define(spec, deletedAt)`），定义错误由 `Err()` 和每个用到它的查询报告。
 - 按主键读写都有类型：`TableXxx.Get(ctx, db, id)`（没有时包装 `sql.ErrNoRows`）、`Find`（没有时 `nil, nil`）、`Fetch(ctx, db, ids...)`（按给定顺序、任意数量），`BatchDeleteByPK` / `BatchHardDeleteByPK` 收 `[]K`——传错类型编译不过（此前收任意 `Arg`，运行时才检查）。`TableXxx.FetchBy(ctx, db, col, values, conds...)` 按其他唯一列取，`TableXxx.Query()` 是读全表（带声明的搜索列）的查询。
-- 别名是表的方法：`pre := TableCourse.As("pre")` 返回的表上每列都已绑到别名（`pre.ID`）；`Column.As` 和 `tsq.AliasTable` 删除，单列改绑用 `col.WithTable(source)`。`Table` 接口的 `Name()` 改名为 `TableName()`，列字段因此可以叫 `Name`。
+- 别名是表的方法：`pre := TableCourse.As("pre")` 返回的表上每列都已绑到别名（`pre.ID`）；`Column.As` 和 `tsq.AliasTable` 删除，单列改绑用 `col.Rebind(source)`（v4 叫 `WithTable`，和 `With*` 选项撞了前缀）。`Table` 接口的 `Name()` 改名为 `TableName()`，列字段因此可以叫 `Name`。
 - `tsq.UpdateTable` / `HardDeleteFrom` 收 `tsq.RowTable[R]`，`tsq.DeleteFrom` 只收 `tsq.SoftDeleteTable[R]`；生成的表结构体、`*tsq.TableOf` 和 `*tsq.SoftDeleteTableOf` 按各自的形状满足它们。对别名执行会被拒绝。
 - `TSQTables()` 返回 `[]tsq.Table`，`TableRegistration` 删除；schema 与索引从描述符读取，`ColumnSpecs()` / `Indexes()` 可供工具使用。手写 `TableSpec` 时 `Define` 要求 `ColumnSpecs` 覆盖每一列、主键和自增与 `PrimaryKey` / `AutoIncrement` 一致。
 - `Paging.Offset()` 删除：offset 是 `Page` 的实现细节，使用者手算 offset 正是它要避免的事。`DefaultMaxPageSize` 挪到分页文件并改为约束 `Paging.Size`。
@@ -101,7 +101,7 @@ v5 是一个重新设计过的版本，不提供对 v4 的兼容层：没有别�
 - `tsq.Open(ctx, driver, dsn, tables, ...)` 自己开连接池；`tsq.NewRuntime(ctx, db, dialect.Postgres, tables, ...)` 用调用方已有的池，`Close()` 只关闭自己开的池。选项是函数式的：`WithSchemaPolicy` / `WithTablePolicy` / `WithIndexPolicy` / `WithLogger` / `WithSQLLogging` / `WithTracers` / `WithMaxPageSize`。
 - Schema 策略四档：`Manual`（默认，生产用）、`Validate`、`CreateMissing`、`Reconcile`（开发和测试用，改了结构重启就跟上）。**TSQ 从不删表**：不删表、不删未声明的索引，也不建任何记账表；`Reconcile` 会删掉表里不再声明的列。
 - 标识符长度校验恒为严格，没有关闭开关。
-- `Tracer` 的签名是 `func(ctx, info tsq.TraceInfo, next) error`：`info.Op` 是操作，`info.Table` 是写入的表或查询的 FROM 表（span 名终于能说清是哪张表）。`UpdateTable` / `DeleteFrom` 报 `update` / `delete` 而不是 `exec`；`TraceOpScalar` / `TraceOpExec` 删除。
+- `Tracer` 的签名是 `func(ctx, info tsq.TraceInfo, next) error`：`info.Op` 是操作，`info.Table` 是写入的表或查询的 FROM 表（span 名终于能说清是哪张表）。`UpdateTable` / `DeleteFrom` 报 `update` / `delete` 而不是 `exec`，`Query.Exists` 报 `exists`（不和读一行的 `get` 混在一起）；`TraceOpScalar` / `TraceOpExec` 删除。
 - `Runtime.Dialect()` 返回方言名 `dialect.Name`。
 
 **读写语义**
@@ -119,7 +119,7 @@ v5 是一个重新设计过的版本，不提供对 v4 的兼容层：没有别�
 - 列定义的 DDL 渲染库和生成器共用一份实现，不再各写一份。
 - 新增 `*tsq.RowStateError`（用 `errors.AsType` 判断，它不是可重试的错误，所以没有 `Is*` 函数）：删除一个已删除的行、恢复一个未删除的行，报的是行的状态不对，而不是乐观锁冲突（那种重试没用），没有 `version` 列的表也会报。
 - `Query.ListIn` 在列表一条语句装得下时不再开事务。
-- **派生表达式不再能直接 `Select`**：列（`Column` / `NullColumn`）知道自己扫描进哪个字段，函数、`CASE`、`Expr` / `Exprf` 产出的是 `tsq.Expression[T]`，没有行归属。此前 `Select(tsq.Date(时间列))` 能编译、执行时才报扫描错误。现在用 `tsq.MapInto` 指定字段，或用新增的 `tsq.SelectValue` / `tsq.SelectNullValue` 让值本身成为行（`Query.Scalar` / `ScalarNull` 因此删除）。`WithTable` / `Param` / `Bind` 只在列上。
+- **派生表达式不再能直接 `Select`**：列（`Column` / `NullColumn`）知道自己扫描进哪个字段，函数、`CASE`、`Expr` / `Exprf` 产出的是 `tsq.Expression[T]`，没有行归属。此前 `Select(tsq.Date(时间列))` 能编译、执行时才报扫描错误。现在用 `tsq.MapInto` 指定字段，或用新增的 `tsq.SelectValue` / `tsq.SelectNullValue` 让值本身成为行（`Query.Scalar` / `ScalarNull` 因此删除）。`Rebind` / `Param` / `Bind` 只在列上。
 - **可空值的排序在三个方言上一致**：NULL 一律当作最小值（升序在前、降序在后），PostgreSQL 显式写 `NULLS FIRST/LAST`；`OrderBy.NullsFirst()` / `NullsLast()` 可改，MySQL 用 `IS NULL` 排序键模拟（集合操作上拒绝）。此前 PostgreSQL 与另两个方言的顺序相反。
 - **时间统一用 UTC**：托管时间戳以 UTC 写入，绑定到 SQL 的所有 `time.Time`（含 `*time.Time`、`sql.NullTime`、`null.Time`）也先转成 UTC。SQLite 按文本存时间，不同时区写入的行此前按文本比较和排序会出错。`tsq.UpdateTable` 在执行时自动刷新 `updated_at`（显式 `Set` 的值优先），与 `Update`、软删除、`Upsert` 一致。
 - **行级写入不越权改托管列**：`Update` 不再写 `created_at` 和 `deleted_at`，并且在软删除表上只匹配未删除的行——手工构造的行不会把 `created_at` 清零，删除之前读出的旧副本也不会把行复活。软删除只写 `deleted_at` / `updated_at` / `version`，不顺带保存行上其他改动；删除已删除的行报 `RowStateError`（经由 `WithDeleted()` 时重新盖墓碑）。恢复用 `Restore`。`Upsert` 写入的行总是未删除状态。
@@ -139,7 +139,7 @@ v5 是一个重新设计过的版本，不提供对 v4 的兼容层：没有别�
 - `IndexSpec`（原 `TableIndex`，与 `dialect.ColumnSpec` 对称，`MissingIndexError` 内嵌它，因此也带 `FullText`），`IndexSpec.Columns` 与 `MissingIndexError.Columns`（原 `Fields`，装的是列名，指令里的 field 指 Go 字段）；`TableSpec.ColumnSpecs` 与 `TableOf.ColumnSpecs()`（原 `Schema`，只含列定义，不含索引；`Schema` 也因此不再是保留的列字段名）。
 - `Set` 只收表的列 `Column[R, T]`：此前收 `TypedColumn`，`MapInto` 的结果列能编译、运行时才报错。
 - 全文检索的检索词类型叫 `tsq.MatchTerm`（和 `tsq.Matches` 配对），避免和关键词搜索那套 `Search` 名字混淆。
-- 错误类型以 `Error` 结尾且字段导出：`OptimisticLockError`、`RowStateError`、`PageRequestError`（客户端的分页请求错了都是它，`Field` + `Reason`：页码或页大小为负、页码超过上限、排序字段未知或有歧义、方向不是 asc/desc、两个列表长度不一致、游标无效或属于另一种排序；此前只有排序问题有类型，叫 `SortError`）、`SchemaMismatchError`（`Validate` 下列不一致，`Changes` 列出每一列；此前是纯文本）、`MissingIndexError`、`MissingTableError`（表名字段叫 `Table`，与其他错误一致），以及 `dialect.UnsupportedCapabilityError`；`RowStateError.Op` 是 `tsq.TraceOp`（新增 `TraceOpRestore`，恢复也按它追踪），`Need` 是 `tsq.RowState`（`RowExists` / `RowLive` / `RowDeleted`），此前都是自由文本；`OptimisticLockError` / `RowStateError` 的 `Expected` 和 `Actual` 都是 `int64`。`RegistrationError` 删除，注册错误由 `Define` 报告。
+- 错误类型以 `Error` 结尾且字段导出：`OptimisticLockError`、`RowStateError`、`PageRequestError`（客户端的分页请求错了都是它，`Field` + `Reason`：页码或页大小为负、页码超过上限、排序字段未知或有歧义、方向不是 asc/desc、两个列表长度不一致、游标无效或属于另一种排序；此前只有排序问题有类型，叫 `SortError`）、`SchemaMismatchError`（`Validate` 下列不一致，`Changes` 列出每一列；此前是纯文本）、`MissingIndexError`、`MissingTableError`（表名字段叫 `Table`，与其他错误一致），以及 `dialect.UnsupportedCapabilityError`；`RowStateError.Op` 是 `tsq.TraceOp`（新增 `TraceOpRestore`，恢复也按它追踪），`Need` 是 `tsq.RowState`（`RowExisting` / `RowLive` / `RowDeleted`），此前都是自由文本；`OptimisticLockError` / `RowStateError` 的 `Expected` 和 `Actual` 都是 `int64`。`RegistrationError` 删除，注册错误由 `Define` 报告。
 - 其余命名：`NewColumn`、`Runtime.WithTxResult[T]`。
 - 只留使用者用得到的导出面：`OrderBy` 只有 `NullsFirst()` / `NullsLast()`（排序方向类型 `Order`、`ASC` / `DESC`、`Reverse` 和两个取值方法是内部实现）；`SQLColumn` 只有 `Name()`；`Param` / `ListParam` 没有 `Name()`；`Page` 只有 `HasNext()`（上一页就是 `Page > 1`）；`SQLColumns`、`TableOf.SearchColumns()` 不导出；`dialect.ColumnSpec` 没有只在读回数据库结构时才有意义的 `NativeType`。
 
@@ -154,7 +154,7 @@ v5 是一个重新设计过的版本，不提供对 v4 的兼容层：没有别�
 
 **`dialect` 包**
 
-- `dialect` 只剩名字和事实：方言名 `dialect.MySQL` / `Postgres` / `SQLite`（类型 `dialect.Name`）；能力常量与 `dialect.Supports(name, capability)`、`dialect.Check(name, capability)`；`*dialect.UnsupportedCapabilityError`（导出 `Capability`、`Dialect` 字段）；生成代码声明列用的 `ColumnSpec`、`ColumnType`、`ColumnKind`（`KindBool` … `KindTime`）、`Fill`。
+- `dialect` 只剩名字和事实：方言名 `dialect.MySQL` / `Postgres` / `SQLite`（类型 `dialect.Name`）；能力常量与 `dialect.Supports(name, capability)`、`dialect.Check(name, capability)`；`*dialect.UnsupportedCapabilityError`（导出 `Capability`、`Dialect` 字段）；生成代码声明列用的 `ColumnSpec`、`ColumnType`、`ColumnKind`（`ColumnKindBool` … `ColumnKindTime`）、`Fill`。
 - `Dialect` 接口、`MySQLDialect` / `PostgresDialect` / `SQLiteDialect`、schema 探查、DDL 渲染和绑定上限都是内部实现，不再导出：它们从来不是扩展点，导出只会让每次内部调整都变成破坏性变更。`tsq.NewRuntime`、`tsq.WrapExecutor`、`Query.SQL`、`Mutation.SQL` 收 `dialect.Name`。`WrapExecutor` 返回 `(Executor, error)`，句柄为 nil 或方言未知时报错（此前返回 nil，错误在第一条语句才出现）。
 - 能力常量按构建器方法命名，值就是错误里显示的 SQL：`CapabilityFullJoin`（原 `CapabilityFullOuterJoin`）、`CapabilityForUpdate` / `CapabilityForShare` / `CapabilityNoWait` / `CapabilitySkipLocked`（原 `CapabilitySelectFor*`）；`Supports` / `Check` 不再接受 `"full join"` 这类字符串拼写。
 
@@ -325,7 +325,7 @@ v5 是一个重新设计过的版本，不提供对 v4 的兼容层：没有别�
 - **分组或 `DISTINCT` 查询选了两个同名列时，MySQL 上 `Count` / `Page` 失败**（错误 1060）：计数把查询包成派生表，派生表不许重名。现在同名列从第二次出现起换成生成的名字，读行按位置，调用方无感知。
 - **子查询里的 `Search` 被静默丢掉**：关键词是执行参数，子查询收不到，搜索谓词就没了。现在构建时报错。
 - **`Exists` 会因为选中列可能为 NULL 而报错**，而它根本不读那一行。
-- **`NullColumn.WithTable(cte)` 在 CTE 已经 `COALESCE` 过时仍被当成可为 NULL**：现在可空性按 CTE 体推导。
+- **`NullColumn.Rebind(cte)` 在 CTE 已经 `COALESCE` 过时仍被当成可为 NULL**：现在可空性按 CTE 体推导。
 - **`In(带 Limit 的子查询)` 在 MySQL 上被拒绝**（错误 1235）：现在写成派生表。
 - **CTE 选了两个同名输出列**（`SUM(amount)` 与 `MAX(amount)`）**时引用它们有歧义**，以前要到数据库执行时才报错，现在构建时报错。
 - **有生成列的表，读出所有可写列的行被当成"部分列读取"拒绝 `Update`**：完整性按全部列算，而生成列从来不写。
@@ -365,7 +365,7 @@ v5 是一个重新设计过的版本，不提供对 v4 的兼容层：没有别�
 - **MySQL 上 `TEXT` / `TINYTEXT` 列被当成 `MEDIUMTEXT`**：一个只能存 255 字节的 `TINYTEXT` 被判定与声明为 100000 字符的字符串一致，`Reconcile` 从不修正，写入长数据时才报错。现在两者按原始类型读回，只和显式的 `type:TEXT` / `type:TINYTEXT` 一致。
 - **MySQL 上 `Reconcile` 会去删外键正在用的索引**：MySQL 的索引列表从不标记约束，"约束支撑的索引不许重建"这条保护在 MySQL 上从不生效，使用者拿到驱动的 1553 错误。现在外键需要的索引被标出，重建会被拒绝并说明原因。
 - **分组、HAVING、集合操作之后绕一次 `OrderBy` 就能加行锁**：`GroupBy(...).OrderBy(...).ForUpdate()` 能编译，PostgreSQL 拒绝执行。现在这些阶段的 `OrderBy` / `Limit` / `Offset` 返回新的 `OrderedResultStage`（经 `ResultSortable`），上面没有 `ForUpdate` / `ForShare`。
-- **聚合、`CASE` 等派生选择项没有列名，CTE 和集合操作的 `ORDER BY` 按名字找不到它们**：`CTE` 里的 `SUM(fee_cents)` 在外层用 `FeeCents.WithTable(cte)` 引用时报 `no such column`，集合操作按派生项排序时 SQLite 报 `does not match any column`。现在不是裸列的选择项写成 `AS <列名>`；集合操作的排序项必须是输出列（`ResultColumn` 新增 `Asc()` / `Desc()` 用来按选中的投影排序），`Upper(col)` 这类没选中的表达式在构建时报错，而不是被静默换成它包着的列。
+- **聚合、`CASE` 等派生选择项没有列名，CTE 和集合操作的 `ORDER BY` 按名字找不到它们**：`CTE` 里的 `SUM(fee_cents)` 在外层用 `FeeCents.Rebind(cte)` 引用时报 `no such column`，集合操作按派生项排序时 SQLite 报 `does not match any column`。现在不是裸列的选择项写成 `AS <列名>`；集合操作的排序项必须是输出列（`ResultColumn` 新增 `Asc()` / `Desc()` 用来按选中的投影排序），`Upper(col)` 这类没选中的表达式在构建时报错，而不是被静默换成它包着的列。
 - **嵌套的集合操作在 SQLite 上是语法错误**：`a.Union(b.Union(c))` 渲染成带括号的复合 SELECT，SQLite 不认。现在嵌套的操作数写成派生表，三个方言都能执行。
 - **`UpdateTable(nil)` 或 `Set(nil, ...)` 直接 panic**：现在和构建器其他地方一样是构建错误。
 - **实现了 `driver.Valuer` / `sql.Scanner` 的自定义类型被按底层类型猜列类型**：文档一直要求这类字段写显式 `type:`，生成器却没有检查，`type Status string` 的 `Value()` 返回整数时建出 `VARCHAR` 列，写入时才报错。现在 `tsq gen` 拒绝并给出修法；只是按底层类型存储的具名类型（`type Level int`）不需要 `Value()`，删掉它即可推导。显式 `type:` 的可空 codec 类型（带 `Valid bool` 的结构体）此前在 Go 侧是 `NullColumn`、DDL 里却是 `NOT NULL`，现在两边一致。

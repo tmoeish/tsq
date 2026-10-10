@@ -877,7 +877,7 @@ func TestIntegrationCapabilitiesExecute(t *testing.T) {
 			if tsqdialect.Supports(rt.Dialect(), tsqdialect.CapabilityCTE) {
 				recent := tsq.CTE("recent_learners",
 					tsq.Select(academy.TableLearner.ID).From(academy.TableLearner).Where(academy.TableLearner.ID.GT(tsq.Val(int64(0)))))
-				recentID := academy.TableLearner.ID.WithTable(recent)
+				recentID := academy.TableLearner.ID.Rebind(recent)
 
 				rows, err := tsq.Select(recentID).From(recent).MustBuild().List(ctx, rt)
 				if err != nil {
@@ -1824,9 +1824,9 @@ func TestIntegrationDerivedColumnsAreNamed(t *testing.T) {
 				tsq.MapInto(tsq.Sum(e.FeeCents), func(r *courseTotal) *int64 { return &r.Fees }),
 			).From(e).GroupBy(e.CourseID))
 
-			fees := e.FeeCents.WithTable(totals)
+			fees := e.FeeCents.Rebind(totals)
 			got, err := tsq.Select(
-				tsq.MapInto(e.CourseID.WithTable(totals), func(r *courseTotal) *int64 { return &r.CourseID }),
+				tsq.MapInto(e.CourseID.Rebind(totals), func(r *courseTotal) *int64 { return &r.CourseID }),
 				tsq.MapInto(fees, func(r *courseTotal) *int64 { return &r.Fees }),
 			).From(totals).Where(fees.GT(tsq.Val(int64(100)))).MustBuild().List(ctx, rt)
 			if err != nil || len(got) != 1 || got[0].CourseID != 1 || got[0].Fees != 150 {
@@ -1880,8 +1880,8 @@ func fkChildTable() tsq.Table {
 		Columns:    []tsq.BoundColumn[fkChild]{id, parent},
 		PrimaryKey: id,
 		ColumnSpecs: []tsqdialect.ColumnSpec{
-			{Name: "id", Type: tsqdialect.ColumnType{Kind: tsqdialect.KindInt, Bits: 64}, PrimaryKey: true},
-			{Name: "parent_id", Type: tsqdialect.ColumnType{Kind: tsqdialect.KindInt, Bits: 64}},
+			{Name: "id", Type: tsqdialect.ColumnType{Kind: tsqdialect.ColumnKindInt, Bits: 64}, PrimaryKey: true},
+			{Name: "parent_id", Type: tsqdialect.ColumnType{Kind: tsqdialect.ColumnKindInt, Bits: 64}},
 		},
 		Indexes: []tsq.IndexSpec{{Name: "idx_fk_child_parent", Columns: []string{"parent_id", "id"}}},
 	})
@@ -2820,7 +2820,7 @@ func TestIntegrationStampsAndKeysRoundTrip(t *testing.T) {
 		PrimaryKey:    id,
 		AutoIncrement: true,
 		ColumnSpecs: []tsqdialect.ColumnSpec{
-			{Name: "id", Type: tsqdialect.ColumnType{Kind: tsqdialect.KindInt, Bits: 64}, PrimaryKey: true, AutoIncrement: true},
+			{Name: "id", Type: tsqdialect.ColumnType{Kind: tsqdialect.ColumnKindInt, Bits: 64}, PrimaryKey: true, AutoIncrement: true},
 		},
 	})
 
@@ -2908,14 +2908,14 @@ var parcels = func() *tsq.TableOf[parcel, string] {
 		PrimaryKey: code,
 		Version:    version,
 		ColumnSpecs: []tsqdialect.ColumnSpec{
-			{Name: "code", Type: tsqdialect.ColumnType{Kind: tsqdialect.KindString, Size: 20}, PrimaryKey: true},
-			{Name: "version", Type: tsqdialect.ColumnType{Kind: tsqdialect.KindInt, Bits: 64}, Default: "1"},
-			{Name: "blob_value", Type: tsqdialect.ColumnType{Kind: tsqdialect.KindBytes}},
-			{Name: "doc", Type: tsqdialect.ColumnType{Kind: tsqdialect.KindBytes, RawType: "JSON"}},
-			{Name: "big", Type: tsqdialect.ColumnType{Kind: tsqdialect.KindInt, Bits: 64, Unsigned: true}},
-			{Name: "is_on", Type: tsqdialect.ColumnType{Kind: tsqdialect.KindBool}},
-			{Name: "at", Type: tsqdialect.ColumnType{Kind: tsqdialect.KindTime}},
-			{Name: "note", Type: tsqdialect.ColumnType{Kind: tsqdialect.KindString, Size: 5, Nullable: true}},
+			{Name: "code", Type: tsqdialect.ColumnType{Kind: tsqdialect.ColumnKindString, Size: 20}, PrimaryKey: true},
+			{Name: "version", Type: tsqdialect.ColumnType{Kind: tsqdialect.ColumnKindInt, Bits: 64}, Default: "1"},
+			{Name: "blob_value", Type: tsqdialect.ColumnType{Kind: tsqdialect.ColumnKindBytes}},
+			{Name: "doc", Type: tsqdialect.ColumnType{Kind: tsqdialect.ColumnKindBytes, RawType: "JSON"}},
+			{Name: "big", Type: tsqdialect.ColumnType{Kind: tsqdialect.ColumnKindInt, Bits: 64, Unsigned: true}},
+			{Name: "is_on", Type: tsqdialect.ColumnType{Kind: tsqdialect.ColumnKindBool}},
+			{Name: "at", Type: tsqdialect.ColumnType{Kind: tsqdialect.ColumnKindTime}},
+			{Name: "note", Type: tsqdialect.ColumnType{Kind: tsqdialect.ColumnKindString, Size: 5, Nullable: true}},
 		},
 	})
 }()
@@ -3163,8 +3163,8 @@ var heldCols = func() heldTable {
 		PrimaryKey:    t.ID,
 		AutoIncrement: true,
 		ColumnSpecs: []tsqdialect.ColumnSpec{
-			{Name: "id", Type: tsqdialect.ColumnType{Kind: tsqdialect.KindInt, Bits: 64}, PrimaryKey: true, AutoIncrement: true},
-			{Name: "note", Type: tsqdialect.ColumnType{Kind: tsqdialect.KindString, Size: 5}},
+			{Name: "id", Type: tsqdialect.ColumnType{Kind: tsqdialect.ColumnKindInt, Bits: 64}, PrimaryKey: true, AutoIncrement: true},
+			{Name: "note", Type: tsqdialect.ColumnType{Kind: tsqdialect.ColumnKindString, Size: 5}},
 			{Name: "doc", Type: tsqdialect.ColumnType{RawType: "JSON"}},
 			{Name: "text", Type: tsqdialect.ColumnType{RawType: "TEXT"}},
 		},
@@ -3298,11 +3298,11 @@ var keyedCols = func() keyedTable {
 		PrimaryKey:    t.ID,
 		AutoIncrement: true,
 		ColumnSpecs: []tsqdialect.ColumnSpec{
-			{Name: "id", Type: tsqdialect.ColumnType{Kind: tsqdialect.KindInt, Bits: 64}, PrimaryKey: true, AutoIncrement: true},
-			{Name: "key", Type: tsqdialect.ColumnType{Kind: tsqdialect.KindBytes, Size: 16}},
-			{Name: "named", Type: tsqdialect.ColumnType{Kind: tsqdialect.KindBytes, Size: 8}},
-			{Name: "maybe", Type: tsqdialect.ColumnType{Kind: tsqdialect.KindBytes, Size: 16, Nullable: true}},
-			{Name: "ptr", Type: tsqdialect.ColumnType{Kind: tsqdialect.KindBytes, Size: 8, Nullable: true}},
+			{Name: "id", Type: tsqdialect.ColumnType{Kind: tsqdialect.ColumnKindInt, Bits: 64}, PrimaryKey: true, AutoIncrement: true},
+			{Name: "key", Type: tsqdialect.ColumnType{Kind: tsqdialect.ColumnKindBytes, Size: 16}},
+			{Name: "named", Type: tsqdialect.ColumnType{Kind: tsqdialect.ColumnKindBytes, Size: 8}},
+			{Name: "maybe", Type: tsqdialect.ColumnType{Kind: tsqdialect.ColumnKindBytes, Size: 16, Nullable: true}},
+			{Name: "ptr", Type: tsqdialect.ColumnType{Kind: tsqdialect.ColumnKindBytes, Size: 8, Nullable: true}},
 		},
 	})
 

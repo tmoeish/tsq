@@ -81,8 +81,8 @@ var TableCourse = newCourseTable() // 函数里：NewTable → 各列 → Define
   `includeDeleted` 仍住在内层 `TableOf` 上——`Get` / `Fetch` / 当 FROM 源这些是从内嵌指针提升的
   方法，scope 放外层它们看不见；只是设置它的 `WithDeleted` 只在软删类型上导出。构造分两个入口
   `NewTable` / `NewSoftDeleteTable`，`tableDef.softDelete` 让两个 `Define` 互相拒绝对方的形状。
-- 生成的 `As(alias)`（和软删表的 `WithDeleted()`）返回同一个结构体，列用 `WithTable` 改绑；`NullColumn` 的
-  `WithTable` 返回的动态类型仍是 `NullColumn`，生成代码断言回去。
+- 生成的 `As(alias)`（和软删表的 `WithDeleted()`）返回同一个结构体，列用 `Rebind` 改绑；`NullColumn` 的
+  `Rebind` 返回的动态类型仍是 `NullColumn`，生成代码断言回去。
 - 列字段名不能和内嵌表类型（`*TableOf` 或 `*SoftDeleteTableOf`）的方法、内嵌字段名、生成的 `As` /
   `WithDeleted` / `GetByX` / `FindByX` / `FetchByX` / `FullTextX` 重名：`internal/cmd/reserved.go` 用反射取方法集（泛型方法反射看不见，单独列出），
   `TestReservedTableNamesCoverTableOf` 扫源码核对两种类型。**给 `TableOf` 或 `SoftDeleteTableOf` 加导出方法
@@ -123,7 +123,7 @@ var TableCourse = newCourseTable() // 函数里：NewTable → 各列 → Define
 - `Condition`、`Subquery`、`SQLColumn` 都是封闭接口，没有导出的 `Clause()` / `SQLExpr()`
   字符串——看 SQL 用 `Query.SQL(dialect.X, args...)`（没有 `String()`：按某个方言默认渲染会误导）。
 - 列的核心是不可变的 `*columnCore`，派生列（函数、聚合、`Exprf`）复制一份再改；`plain`
-  标记"直接引用 table.name"，只有它能 `WithTable` / `As` 换表。
+  标记"直接引用 table.name"，只有它能 `Rebind` / `As` 换表。
 - 方言写法不同的列函数（`Length`、`Round`、`Date`、`Year/Month/Day`）用 `sqlByDialect` 分叉；
   程序给出的整数（`Substring` 边界、`Round` 精度）直接写进文本，避免 PostgreSQL 为未知类型的
   参数选错重载。SQLite 上的日期函数先取时间文本的前 19 个字符（`sqliteTimeText`），因为
@@ -217,7 +217,7 @@ JoinStage ─Search► SearchStage ─Where─► FilteredStage
 ### 表达式与列（`column.go`）
 
 `exprImpl[T]` 实现 `Expression[T]`（谓词、`Asc`/`Desc`、`Pred`、`Expr`/`Exprf`）；`columnImpl[O, T]`
-嵌入它再加上 `boundTo(O)`、`WithTable` / `As` / `Param` / `Bind`。**派生表达式不带扫描目标**
+嵌入它再加上 `boundTo(O)`、`Rebind` / `As` / `Param` / `Bind`。**派生表达式不带扫描目标**
 （`derived` 清掉 `scan` 和 `nullable`）：它的值类型和源列字段无关，所以进不了 `Select`。
 `MapInto` / `MapIntoNull` 给它一个字段，`SelectValue` / `SelectNullValue` 让值本身当行
 （内部就是 `Select(MapInto(expr, 恒等访问器))`）。
@@ -233,7 +233,7 @@ JoinStage ─Search► SearchStage ─Where─► FilteredStage
 NULL（`NullColumn`、`MapIntoNull`）。`Build` 时算出 `Query.scanErr`，**读行的路径**（`each` / `get`）才
 返回它——子查询和 CTE 不读行，不能在 `Build` 里拒绝。`SelectValue` 的投影不可空、`SelectNullValue` 的可空，
 所以同一道检查也管住了它们。
-CTE 的输出列可空时，`WithTable(cte)` 重绑的列标成 `always`。
+CTE 的输出列可空时，`Rebind(cte)` 重绑的列标成 `always`。
 
 ### 软删除作用域（`query_render.go` 的 `writeFromWhere`、`table.go` 的 `liveRows` / `liveSource`）
 

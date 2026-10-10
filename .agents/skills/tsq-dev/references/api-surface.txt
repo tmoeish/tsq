@@ -70,7 +70,7 @@ func Case[T any](cond Condition, result Operand[T]) CaseStage[T]
 type Column[O, T any] interface {
 	Expression[T]
 	TypedColumn[O, T]
-	WithTable(table Table) Column[O, T]
+	Rebind(table Table) Column[O, T]
 	Param() Param[T]
 	ListParam() ListParam[T]
 	Bind(value T) Arg
@@ -400,7 +400,7 @@ type RetryPolicy struct {
 func DefaultRetryPolicy() RetryPolicy
 type RowState uint8
 const (
-	RowExists RowState = iota + 1
+	RowExisting RowState = iota + 1
 	RowLive
 	RowDeleted
 )
@@ -570,6 +570,7 @@ const (
 	TraceOpHardDelete TraceOp = "hard_delete"
 	TraceOpRestore TraceOp = "restore"
 	TraceOpGet     TraceOp = "get"
+	TraceOpExists  TraceOp = "exists"
 	TraceOpList    TraceOp = "list"
 	TraceOpIter    TraceOp = "iter"
 	TraceOpPage    TraceOp = "page"
@@ -630,12 +631,12 @@ const (
 )
 type ColumnKind string
 const (
-	KindBool   ColumnKind = "bool"
-	KindBytes  ColumnKind = "bytes"
-	KindFloat  ColumnKind = "float"
-	KindInt    ColumnKind = "int"
-	KindString ColumnKind = "string"
-	KindTime   ColumnKind = "time"
+	ColumnKindBool   ColumnKind = "bool"
+	ColumnKindBytes  ColumnKind = "bytes"
+	ColumnKindFloat  ColumnKind = "float"
+	ColumnKindInt    ColumnKind = "int"
+	ColumnKindString ColumnKind = "string"
+	ColumnKindTime   ColumnKind = "time"
 )
 type ColumnSpec struct {
 	Name          string

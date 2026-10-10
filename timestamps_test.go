@@ -129,9 +129,9 @@ var (
 		AutoIncrement: true,
 		UpdatedAt:     Stamped_Updated,
 		ColumnSpecs: []tsqdialect.ColumnSpec{
-			{Name: "id", Type: tsqdialect.ColumnType{Kind: tsqdialect.KindInt, Bits: 64}, PrimaryKey: true, AutoIncrement: true},
-			{Name: "updated_at", Type: tsqdialect.ColumnType{Kind: tsqdialect.KindTime, Nullable: true}},
-			{Name: "deleted_at", Type: tsqdialect.ColumnType{Kind: tsqdialect.KindTime, Nullable: true}},
+			{Name: "id", Type: tsqdialect.ColumnType{Kind: tsqdialect.ColumnKindInt, Bits: 64}, PrimaryKey: true, AutoIncrement: true},
+			{Name: "updated_at", Type: tsqdialect.ColumnType{Kind: tsqdialect.ColumnKindTime, Nullable: true}},
+			{Name: "deleted_at", Type: tsqdialect.ColumnType{Kind: tsqdialect.ColumnKindTime, Nullable: true}},
 		},
 	}, Stamped_Deleted)
 )

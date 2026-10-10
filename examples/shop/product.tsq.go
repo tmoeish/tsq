@@ -80,7 +80,7 @@ func newProductTable() ProductTable {
 			{
 				Name: "id",
 				Type: tsqdialect.ColumnType{
-					Kind: tsqdialect.KindInt,
+					Kind: tsqdialect.ColumnKindInt,
 					Bits: 64,
 				},
 				PrimaryKey:    true,
@@ -89,20 +89,20 @@ func newProductTable() ProductTable {
 			{
 				Name: "created_at",
 				Type: tsqdialect.ColumnType{
-					Kind: tsqdialect.KindTime,
+					Kind: tsqdialect.ColumnKindTime,
 				},
 				Default: "CURRENT_TIMESTAMP",
 			},
 			{
 				Name: "updated_at",
 				Type: tsqdialect.ColumnType{
-					Kind: tsqdialect.KindTime,
+					Kind: tsqdialect.ColumnKindTime,
 				},
 			},
 			{
 				Name: "deleted_at",
 				Type: tsqdialect.ColumnType{
-					Kind: tsqdialect.KindInt,
+					Kind: tsqdialect.ColumnKindInt,
 					Bits: 64,
 				},
 				Default: "0",
@@ -110,7 +110,7 @@ func newProductTable() ProductTable {
 			{
 				Name: "version",
 				Type: tsqdialect.ColumnType{
-					Kind: tsqdialect.KindInt,
+					Kind: tsqdialect.ColumnKindInt,
 					Bits: 64,
 				},
 				Default: "1",
@@ -118,49 +118,49 @@ func newProductTable() ProductTable {
 			{
 				Name: "category_id",
 				Type: tsqdialect.ColumnType{
-					Kind: tsqdialect.KindInt,
+					Kind: tsqdialect.ColumnKindInt,
 					Bits: 64,
 				},
 			},
 			{
 				Name: "description",
 				Type: tsqdialect.ColumnType{
-					Kind: tsqdialect.KindString,
+					Kind: tsqdialect.ColumnKindString,
 					Size: 512,
 				},
 			},
 			{
 				Name: "name",
 				Type: tsqdialect.ColumnType{
-					Kind: tsqdialect.KindString,
+					Kind: tsqdialect.ColumnKindString,
 					Size: 128,
 				},
 			},
 			{
 				Name: "price_cents",
 				Type: tsqdialect.ColumnType{
-					Kind: tsqdialect.KindInt,
+					Kind: tsqdialect.ColumnKindInt,
 					Bits: 64,
 				},
 			},
 			{
 				Name: "sku",
 				Type: tsqdialect.ColumnType{
-					Kind: tsqdialect.KindString,
+					Kind: tsqdialect.ColumnKindString,
 					Size: 32,
 				},
 			},
 			{
 				Name: "status",
 				Type: tsqdialect.ColumnType{
-					Kind: tsqdialect.KindString,
+					Kind: tsqdialect.ColumnKindString,
 					Size: 16,
 				},
 			},
 			{
 				Name: "stock",
 				Type: tsqdialect.ColumnType{
-					Kind: tsqdialect.KindInt,
+					Kind: tsqdialect.ColumnKindInt,
 					Bits: 64,
 				},
 			},
@@ -182,18 +182,18 @@ func (t ProductTable) As(alias string) ProductTable {
 
 	return ProductTable{
 		SoftDeleteTableOf: a,
-		ID:                t.ID.WithTable(a),
-		CategoryID:        t.CategoryID.WithTable(a),
-		SKU:               t.SKU.WithTable(a),
-		Name:              t.Name.WithTable(a),
-		Description:       t.Description.WithTable(a),
-		PriceCents:        t.PriceCents.WithTable(a),
-		Stock:             t.Stock.WithTable(a),
-		Status:            t.Status.WithTable(a),
-		CreatedAt:         t.CreatedAt.WithTable(a),
-		UpdatedAt:         t.UpdatedAt.WithTable(a),
-		DeletedAt:         t.DeletedAt.WithTable(a),
-		Version:           t.Version.WithTable(a),
+		ID:                t.ID.Rebind(a),
+		CategoryID:        t.CategoryID.Rebind(a),
+		SKU:               t.SKU.Rebind(a),
+		Name:              t.Name.Rebind(a),
+		Description:       t.Description.Rebind(a),
+		PriceCents:        t.PriceCents.Rebind(a),
+		Stock:             t.Stock.Rebind(a),
+		Status:            t.Status.Rebind(a),
+		CreatedAt:         t.CreatedAt.Rebind(a),
+		UpdatedAt:         t.UpdatedAt.Rebind(a),
+		DeletedAt:         t.DeletedAt.Rebind(a),
+		Version:           t.Version.Rebind(a),
 	}
 }
 

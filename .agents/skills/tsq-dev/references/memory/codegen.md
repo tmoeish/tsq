@@ -15,7 +15,7 @@
 
 ## 决定：列是表结构体的字段，不是包级变量 (2026-09-19，v5)
 
-`Course_ID` / `Course__Cols` 每表往包里撒十几个带下划线的名字，别名要逐列 `WithTable`，还靠"句柄 → 列
+`Course_ID` / `Course__Cols` 每表往包里撒十几个带下划线的名字，别名要逐列 `Rebind`，还靠"句柄 → 列
 → Define"三步声明加一个按文件名排序的示例门禁（`academyqueries.go`，已删）守初始化顺序。现在是内嵌
 `*TableOf` 的 `CourseTable`：取列必经 `TableCourse`，初始化顺序由 Go 保证；`As` 一次改绑整套列。
 **代价**：列字段不能和 `TableOf` 的方法重名，`tsq gen` 报错（`reserved.go`），所以 `Table.Name()` 改成了

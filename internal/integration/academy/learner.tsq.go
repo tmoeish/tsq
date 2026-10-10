@@ -59,7 +59,7 @@ func newLearnerTable() LearnerTable {
 			{
 				Name: "id",
 				Type: tsqdialect.ColumnType{
-					Kind: tsqdialect.KindInt,
+					Kind: tsqdialect.ColumnKindInt,
 					Bits: 64,
 				},
 				PrimaryKey:    true,
@@ -68,28 +68,28 @@ func newLearnerTable() LearnerTable {
 			{
 				Name: "created_at",
 				Type: tsqdialect.ColumnType{
-					Kind:     tsqdialect.KindTime,
+					Kind:     tsqdialect.ColumnKindTime,
 					Nullable: true,
 				},
 			},
 			{
 				Name: "company",
 				Type: tsqdialect.ColumnType{
-					Kind: tsqdialect.KindString,
+					Kind: tsqdialect.ColumnKindString,
 					Size: 160,
 				},
 			},
 			{
 				Name: "email",
 				Type: tsqdialect.ColumnType{
-					Kind: tsqdialect.KindString,
+					Kind: tsqdialect.ColumnKindString,
 					Size: 160,
 				},
 			},
 			{
 				Name: "name",
 				Type: tsqdialect.ColumnType{
-					Kind: tsqdialect.KindString,
+					Kind: tsqdialect.ColumnKindString,
 					Size: 120,
 				},
 			},
@@ -110,11 +110,11 @@ func (t LearnerTable) As(alias string) LearnerTable {
 
 	return LearnerTable{
 		TableOf:   a,
-		ID:        t.ID.WithTable(a),
+		ID:        t.ID.Rebind(a),
 		CreatedAt: tsq.RebindNull(t.CreatedAt, a),
-		Name:      t.Name.WithTable(a),
-		Email:     t.Email.WithTable(a),
-		Company:   t.Company.WithTable(a),
+		Name:      t.Name.Rebind(a),
+		Email:     t.Email.Rebind(a),
+		Company:   t.Company.Rebind(a),
 	}
 }
 

@@ -28,7 +28,7 @@ func TestMySQLDialectDDLColumnTypeUsesTextFamilyForLargeStrings(t *testing.T) {
 			t.Parallel()
 
 			got := dialect.ColumnTypeSQL(ColumnType{
-				Kind: KindString,
+				Kind: ColumnKindString,
 				Size: tt.size,
 			})
 			if got != tt.want {
@@ -55,7 +55,7 @@ func TestDDLColumnTypeUsesVarcharForDefaultStrings(t *testing.T) {
 		t.Run(tt.name, func(t *testing.T) {
 			t.Parallel()
 
-			got := tt.dialect.ColumnTypeSQL(ColumnType{Kind: KindString})
+			got := tt.dialect.ColumnTypeSQL(ColumnType{Kind: ColumnKindString})
 			if got != tt.want {
 				t.Fatalf("DDLColumnType() = %q, want %q", got, tt.want)
 			}
@@ -105,7 +105,7 @@ func TestDDLColumnTypeUsesRawTypeOverride(t *testing.T) {
 			t.Parallel()
 
 			got := tt.dialect.ColumnTypeSQL(ColumnType{
-				Kind:    KindString,
+				Kind:    ColumnKindString,
 				RawType: tt.rawType,
 				Size:    255,
 			})
@@ -151,7 +151,7 @@ func TestDDLColumnParsersPreserveUnknownTypes(t *testing.T) {
 // smaller types read back as themselves: drift unless the column declares them.
 func TestMySQLTextColumnsKeepTheirSize(t *testing.T) {
 	d := MySQLDialect{}
-	large := ColumnSpec{Name: "bio", Type: ColumnType{Kind: KindString, Size: 100000}}
+	large := ColumnSpec{Name: "bio", Type: ColumnType{Kind: ColumnKindString, Size: 100000}}
 	declaredText := ColumnSpec{Name: "bio", Type: ColumnType{RawType: "TEXT"}}
 
 	for _, native := range []string{"tinytext", "text"} {
@@ -182,7 +182,7 @@ func TestMySQLTextColumnsKeepTheirSize(t *testing.T) {
 // precision reads back as its raw type, so Reconcile widens it.
 func TestMySQLTimesKeepMicroseconds(t *testing.T) {
 	d := MySQLDialect{}
-	declared := ColumnSpec{Name: "at", Type: ColumnType{Kind: KindTime}}
+	declared := ColumnSpec{Name: "at", Type: ColumnType{Kind: ColumnKindTime}}
 
 	if got := d.ColumnTypeSQL(declared.Type); got != "DATETIME(6)" {
 		t.Fatalf("time renders as %s", got)
@@ -202,7 +202,7 @@ func TestMySQLTimesKeepMicroseconds(t *testing.T) {
 	// The current time is the UTC time on every dialect, which is what TSQ binds;
 	// MySQL also needs the precision (DATETIME(6) DEFAULT CURRENT_TIMESTAMP is
 	// error 1067), and SQLite's CURRENT_TIMESTAMP is UTC already.
-	stamped := ColumnSpec{Name: "at", Type: ColumnType{Kind: KindTime}, Default: "CURRENT_TIMESTAMP"}
+	stamped := ColumnSpec{Name: "at", Type: ColumnType{Kind: ColumnKindTime}, Default: "CURRENT_TIMESTAMP"}
 	for dialect, want := range map[Dialect]string{
 		d:                 "DEFAULT (UTC_TIMESTAMP(6))",
 		PostgresDialect{}: "DEFAULT (CURRENT_TIMESTAMP AT TIME ZONE 'UTC')",
@@ -241,8 +241,8 @@ func TestMySQLNarrowerTypesAreNotTheDeclaredOnes(t *testing.T) {
 	d := MySQLDialect{}
 
 	for native, declared := range map[string]ColumnType{
-		"mediumint":     {Kind: KindInt, Bits: 32},
-		"decimal(10,2)": {Kind: KindFloat, Bits: 64},
+		"mediumint":     {Kind: ColumnKindInt, Bits: 32},
+		"decimal(10,2)": {Kind: ColumnKindFloat, Bits: 64},
 	} {
 		data, _, _ := strings.Cut(native, "(")
 
@@ -264,8 +264,8 @@ func TestMySQLTextDefaultsAreExpressions(t *testing.T) {
 	d := MySQLDialect{}
 
 	for _, column := range []ColumnSpec{
-		{Name: "bio", Type: ColumnType{Kind: KindString, Size: 100000}, Default: "''"},
-		{Name: "blob", Type: ColumnType{Kind: KindBytes}, Default: "''"},
+		{Name: "bio", Type: ColumnType{Kind: ColumnKindString, Size: 100000}, Default: "''"},
+		{Name: "blob", Type: ColumnType{Kind: ColumnKindBytes}, Default: "''"},
 		{Name: "doc", Type: ColumnType{RawType: "JSON"}, Default: "'{}'"},
 	} {
 		if got, err := ColumnDefinitionSQL(d, column); err != nil || !strings.Contains(got, "DEFAULT ("+column.Default+")") {
@@ -273,7 +273,7 @@ func TestMySQLTextDefaultsAreExpressions(t *testing.T) {
 		}
 	}
 
-	short := ColumnSpec{Name: "code", Type: ColumnType{Kind: KindString, Size: 8}, Default: "'x'"}
+	short := ColumnSpec{Name: "code", Type: ColumnType{Kind: ColumnKindString, Size: 8}, Default: "'x'"}
 	if got, _ := ColumnDefinitionSQL(d, short); !strings.HasSuffix(got, "DEFAULT 'x'") {
 		t.Errorf("varchar default = %s", got)
 	}
@@ -285,7 +285,7 @@ func TestMySQLBytesTakeTheirSize(t *testing.T) {
 	d := MySQLDialect{}
 
 	for size, want := range map[int]string{0: "BLOB", 1000: "BLOB", 1 << 20: "MEDIUMBLOB", 1 << 25: "LONGBLOB"} {
-		declared := ColumnSpec{Name: "b", Type: ColumnType{Kind: KindBytes, Size: size}}
+		declared := ColumnSpec{Name: "b", Type: ColumnType{Kind: ColumnKindBytes, Size: size}}
 		if got := d.ColumnTypeSQL(declared.Type); got != want {
 			t.Errorf("size %d = %s, want %s", size, got, want)
 		}
@@ -337,12 +337,12 @@ func TestMySQLReadsAnExpressionDefaultBackAsDeclared(t *testing.T) {
 func TestMySQLNumbersBecomeBooleansByValue(t *testing.T) {
 	d := MySQLDialect{}
 
-	statements := d.AlterColumnSQL("t", Column{Name: "c", Type: ColumnType{Kind: KindInt, Bits: 32}}, ColumnSpec{Name: "c", Type: ColumnType{Kind: KindBool}})
+	statements := d.AlterColumnSQL("t", Column{Name: "c", Type: ColumnType{Kind: ColumnKindInt, Bits: 32}}, ColumnSpec{Name: "c", Type: ColumnType{Kind: ColumnKindBool}})
 	if len(statements) != 2 || statements[0] != "UPDATE `t` SET `c` = 1 WHERE `c` <> 0;" || !strings.HasPrefix(statements[1], "ALTER TABLE `t` MODIFY COLUMN `c` BOOLEAN") {
 		t.Errorf("integer to boolean = %v", statements)
 	}
 
-	statements = d.AlterColumnSQL("t", Column{Name: "c", Type: ColumnType{Kind: KindString, Size: 10}}, ColumnSpec{Name: "c", Type: ColumnType{Kind: KindBool}})
+	statements = d.AlterColumnSQL("t", Column{Name: "c", Type: ColumnType{Kind: ColumnKindString, Size: 10}}, ColumnSpec{Name: "c", Type: ColumnType{Kind: ColumnKindBool}})
 	if len(statements) != 1 {
 		t.Errorf("text to boolean is the engine's to refuse, got %v", statements)
 	}

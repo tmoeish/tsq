@@ -1759,7 +1759,7 @@ func (t *TableOf[R, K]) updateMismatch(ctx context.Context, db Executor, scope e
 
 		*written = done
 
-		need := RowExists
+		need := RowExisting
 		if t.softDeleted() {
 			need = RowLive
 		}
@@ -1946,7 +1946,7 @@ func (t *TableOf[R, K]) hardDeleteShortfall(ctx context.Context, db Executor, sc
 	return func(expected, actual int64) error {
 		stored, err := t.readBack(ctx, db, scope, def, nil, rows, false)
 		if err != nil {
-			shortfall := wrongRowState(def.name, TraceOpHardDelete, RowExists)
+			shortfall := wrongRowState(def.name, TraceOpHardDelete, RowExisting)
 			if version != nil {
 				shortfall = versionConflict(def.name)
 			}
@@ -1976,7 +1976,7 @@ func (t *TableOf[R, K]) hardDeleteShortfall(ctx context.Context, db Executor, sc
 		}
 
 		if len(gone) > 0 {
-			errs = append(errs, &RowStateError{Table: def.name, Op: TraceOpHardDelete, Need: RowExists, Expected: expected, Actual: actual, Keys: gone})
+			errs = append(errs, &RowStateError{Table: def.name, Op: TraceOpHardDelete, Need: RowExisting, Expected: expected, Actual: actual, Keys: gone})
 		}
 
 		return errors.Join(errs...)
@@ -2102,7 +2102,7 @@ func (t *TableOf[R, K]) deleteByPK(ctx context.Context, db Executor, keys []K, o
 			}
 		}
 
-		need := RowExists
+		need := RowExisting
 		if soft && t.softDeleted() {
 			need = RowLive
 		}

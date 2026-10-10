@@ -22,6 +22,7 @@ const (
 	// TraceOpRestore clears the tombstone of soft-deleted rows.
 	TraceOpRestore TraceOp = "restore"
 	TraceOpGet     TraceOp = "get"
+	TraceOpExists  TraceOp = "exists"
 	TraceOpList    TraceOp = "list"
 	TraceOpIter    TraceOp = "iter"
 	TraceOpPage    TraceOp = "page"

@@ -54,7 +54,7 @@ func TestOnlyPostgresReturnsInsertIDsThroughReturning(t *testing.T) {
 // no expression. It used to be written as a plain NOT NULL column, so a runtime
 // that created the table made every INSERT fail on it.
 func TestColumnDefinitionRefusesAColumnItCannotWrite(t *testing.T) {
-	column := ColumnSpec{Name: "slug", Type: ColumnType{Kind: KindString, Size: 64}, Fill: FillGenerated}
+	column := ColumnSpec{Name: "slug", Type: ColumnType{Kind: ColumnKindString, Size: 64}, Fill: FillGenerated}
 
 	for _, d := range []Dialect{MySQLDialect{}, PostgresDialect{}, SQLiteDialect{}} {
 		if _, err := ColumnDefinitionSQL(d, column); err == nil || !strings.Contains(err.Error(), "slug is computed by the database") {
@@ -120,7 +120,7 @@ func TestRawTypesCompareUnderOneName(t *testing.T) {
 func TestSameKeyGeneratorAcceptsTheRowidForAnAssignedKey(t *testing.T) {
 	t.Parallel()
 
-	assigned := ColumnSpec{Name: "id", Type: ColumnType{Kind: KindInt, Bits: 64}, PrimaryKey: true}
+	assigned := ColumnSpec{Name: "id", Type: ColumnType{Kind: ColumnKindInt, Bits: 64}, PrimaryKey: true}
 	generated := assigned
 	generated.AutoIncrement = true
 

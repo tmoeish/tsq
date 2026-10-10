@@ -638,33 +638,33 @@ func parseMySQLColumnType(dataType, columnType string, size sql.NullInt64) (Colu
 
 	switch data {
 	case "bool", "boolean":
-		return ColumnType{Kind: KindBool}, nil
+		return ColumnType{Kind: ColumnKindBool}, nil
 	case "tinyint":
 		if strings.HasPrefix(colType, "tinyint(1)") {
-			return ColumnType{Kind: KindBool}, nil
+			return ColumnType{Kind: ColumnKindBool}, nil
 		}
 
-		return ColumnType{Kind: KindInt, Bits: 8, Unsigned: unsigned}, nil
+		return ColumnType{Kind: ColumnKindInt, Bits: 8, Unsigned: unsigned}, nil
 	case "smallint":
-		return ColumnType{Kind: KindInt, Bits: 16, Unsigned: unsigned}, nil
+		return ColumnType{Kind: ColumnKindInt, Bits: 16, Unsigned: unsigned}, nil
 	case "int", "integer":
-		return ColumnType{Kind: KindInt, Bits: 32, Unsigned: unsigned}, nil
+		return ColumnType{Kind: ColumnKindInt, Bits: 32, Unsigned: unsigned}, nil
 	case "bigint":
-		return ColumnType{Kind: KindInt, Bits: 64, Unsigned: unsigned}, nil
+		return ColumnType{Kind: ColumnKindInt, Bits: 64, Unsigned: unsigned}, nil
 	case "float":
-		return ColumnType{Kind: KindFloat, Bits: 32}, nil
+		return ColumnType{Kind: ColumnKindFloat, Bits: 32}, nil
 	case "double", "double precision":
-		return ColumnType{Kind: KindFloat, Bits: 64}, nil
+		return ColumnType{Kind: ColumnKindFloat, Bits: 64}, nil
 	case "blob":
-		return ColumnType{Kind: KindBytes}, nil
+		return ColumnType{Kind: ColumnKindBytes}, nil
 	case "mediumblob":
-		return ColumnType{Kind: KindBytes, Size: mysqlMaxBlobBytes + 1}, nil
+		return ColumnType{Kind: ColumnKindBytes, Size: mysqlMaxBlobBytes + 1}, nil
 	case "longblob":
-		return ColumnType{Kind: KindBytes, Size: mysqlMaxMediumBlobBytes + 1}, nil
+		return ColumnType{Kind: ColumnKindBytes, Size: mysqlMaxMediumBlobBytes + 1}, nil
 	case "tinyblob":
 		return ColumnType{RawType: "TINYBLOB"}, nil
 	case "varchar", "char":
-		result := ColumnType{Kind: KindString}
+		result := ColumnType{Kind: ColumnKindString}
 		if size.Valid && size.Int64 > 0 {
 			result.Size = int(size.Int64)
 		}
@@ -677,16 +677,16 @@ func parseMySQLColumnType(dataType, columnType string, size sql.NullInt64) (Colu
 		// altered. A column declared type:TEXT still matches.
 		return ColumnType{RawType: strings.ToUpper(data)}, nil
 	case "mediumtext":
-		return ColumnType{Kind: KindString, Size: mysqlMaxVarcharChars + 1}, nil
+		return ColumnType{Kind: ColumnKindString, Size: mysqlMaxVarcharChars + 1}, nil
 	case "longtext":
-		return ColumnType{Kind: KindString, Size: mysqlMaxMediumTextChars + 1}, nil
+		return ColumnType{Kind: ColumnKindString, Size: mysqlMaxMediumTextChars + 1}, nil
 	case "datetime", "timestamp", "date":
 		// TSQ renders a time as DATETIME(6). Any other precision keeps its raw type,
 		// so a DATETIME column, which rounds to the second, is widened by Reconcile
 		// instead of silently disagreeing with the microseconds held in memory. A
 		// column declared with the same type:X still matches.
 		if colType == "datetime(6)" {
-			return ColumnType{Kind: KindTime}, nil
+			return ColumnType{Kind: ColumnKindTime}, nil
 		}
 
 		return ColumnType{RawType: strings.ToUpper(rawColumnType)}, nil
@@ -714,9 +714,9 @@ func (d MySQLDialect) ColumnTypeSQL(desc ColumnType) string {
 	}
 
 	switch desc.Kind {
-	case KindBool:
+	case ColumnKindBool:
 		return "BOOLEAN"
-	case KindBytes:
+	case ColumnKindBytes:
 		// A BLOB holds 64 KiB; a larger declared size takes the type that holds it.
 		switch {
 		case desc.Size <= mysqlMaxBlobBytes:
@@ -726,13 +726,13 @@ func (d MySQLDialect) ColumnTypeSQL(desc ColumnType) string {
 		default:
 			return "LONGBLOB"
 		}
-	case KindFloat:
+	case ColumnKindFloat:
 		if desc.Bits <= 32 {
 			return "FLOAT"
 		}
 
 		return "DOUBLE"
-	case KindInt:
+	case ColumnKindInt:
 		switch {
 		case desc.Bits <= 8:
 			if desc.Unsigned {
@@ -760,7 +760,7 @@ func (d MySQLDialect) ColumnTypeSQL(desc ColumnType) string {
 			return "BIGINT"
 		}
 
-	case KindString:
+	case ColumnKindString:
 		switch {
 		case desc.Size <= 0:
 			return fmt.Sprintf("VARCHAR(%d)", defaultDDLStringSize)
@@ -771,7 +771,7 @@ func (d MySQLDialect) ColumnTypeSQL(desc ColumnType) string {
 		default:
 			return "LONGTEXT"
 		}
-	case KindTime:
+	case ColumnKindTime:
 		return "DATETIME(6)"
 	default:
 		return "TEXT"
@@ -779,7 +779,7 @@ func (d MySQLDialect) ColumnTypeSQL(desc ColumnType) string {
 }
 
 func (d MySQLDialect) AutoIncrementColumnSQL(quotedColumn string, desc ColumnType) (string, error) {
-	if desc.Kind != KindInt {
+	if desc.Kind != ColumnKindInt {
 		return "", errors.New("auto-increment primary key requires an integer field")
 	}
 
@@ -848,8 +848,8 @@ func (d MySQLDialect) AlterColumnSQL(table string, before Column, after ColumnSp
 	// A number that becomes a BOOLEAN keeps its value, and a 2 in a TINYINT(1) is
 	// read into no bool: every later read of the table failed. Anything but zero
 	// is true, as PostgreSQL's USING c <> 0 says it.
-	if before.Type.RawType == "" && after.Type.RawType == "" && after.Type.Kind == KindBool &&
-		(before.Type.Kind == KindInt || before.Type.Kind == KindFloat) {
+	if before.Type.RawType == "" && after.Type.RawType == "" && after.Type.Kind == ColumnKindBool &&
+		(before.Type.Kind == ColumnKindInt || before.Type.Kind == ColumnKindFloat) {
 		statements = append(statements, fmt.Sprintf("UPDATE %s SET %s = 1 WHERE %s <> 0;",
 			d.QuoteIdent(table), d.QuoteIdent(after.Name), d.QuoteIdent(after.Name)))
 	}

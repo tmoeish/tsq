@@ -62,7 +62,7 @@ func TestZeroTimeLiteralIsOneEachDialectTakes(t *testing.T) {
 		PostgresDialect{}: "'0001-01-01 00:00:00'",
 		SQLiteDialect{}:   "'0001-01-01 00:00:00+00:00'",
 	} {
-		if got, ok := ZeroLiteral(d, ColumnType{Kind: KindTime}); !ok || got != want {
+		if got, ok := ZeroLiteral(d, ColumnType{Kind: ColumnKindTime}); !ok || got != want {
 			t.Errorf("%s zero time = %s, %v; want %s", d.Name(), got, ok, want)
 		}
 	}
@@ -80,38 +80,38 @@ func TestAddColumnFillsTheRowsPresent(t *testing.T) {
 	}{
 		{
 			PostgresDialect{},
-			ColumnSpec{Name: "n", Type: ColumnType{Kind: KindInt, Bits: 32}},
+			ColumnSpec{Name: "n", Type: ColumnType{Kind: ColumnKindInt, Bits: 32}},
 			`ALTER TABLE "t" ADD COLUMN "n" INTEGER NOT NULL DEFAULT 0; | ALTER TABLE "t" ALTER COLUMN "n" DROP DEFAULT;`,
 		},
 		{
 			PostgresDialect{},
-			ColumnSpec{Name: "ok", Type: ColumnType{Kind: KindBool}},
+			ColumnSpec{Name: "ok", Type: ColumnType{Kind: ColumnKindBool}},
 			`ALTER TABLE "t" ADD COLUMN "ok" BOOLEAN NOT NULL DEFAULT FALSE; | ALTER TABLE "t" ALTER COLUMN "ok" DROP DEFAULT;`,
 		},
 		{
 			MySQLDialect{},
-			ColumnSpec{Name: "at", Type: ColumnType{Kind: KindTime}},
+			ColumnSpec{Name: "at", Type: ColumnType{Kind: ColumnKindTime}},
 			"ALTER TABLE `t` ADD COLUMN `at` DATETIME(6) NOT NULL DEFAULT '0001-01-01 00:00:00'; | ALTER TABLE `t` ALTER COLUMN `at` DROP DEFAULT;",
 		},
 		{
 			MySQLDialect{},
-			ColumnSpec{Name: "bio", Type: ColumnType{Kind: KindString, Size: 100000}},
+			ColumnSpec{Name: "bio", Type: ColumnType{Kind: ColumnKindString, Size: 100000}},
 			"ALTER TABLE `t` ADD COLUMN `bio` MEDIUMTEXT NOT NULL DEFAULT (''); | ALTER TABLE `t` ALTER COLUMN `bio` DROP DEFAULT;",
 		},
 		{
 			MySQLDialect{},
-			ColumnSpec{Name: "photo", Type: ColumnType{Kind: KindBytes}},
+			ColumnSpec{Name: "photo", Type: ColumnType{Kind: ColumnKindBytes}},
 			"ALTER TABLE `t` ADD COLUMN `photo` BLOB NOT NULL DEFAULT (X''); | ALTER TABLE `t` ALTER COLUMN `photo` DROP DEFAULT;",
 		},
 		// Nothing to fill: a nullable column, one with a default, one of a raw type.
 		{
 			PostgresDialect{},
-			ColumnSpec{Name: "n", Type: ColumnType{Kind: KindInt, Bits: 32, Nullable: true}},
+			ColumnSpec{Name: "n", Type: ColumnType{Kind: ColumnKindInt, Bits: 32, Nullable: true}},
 			`ALTER TABLE "t" ADD COLUMN "n" INTEGER;`,
 		},
 		{
 			PostgresDialect{},
-			ColumnSpec{Name: "n", Type: ColumnType{Kind: KindInt, Bits: 32}, Default: "7"},
+			ColumnSpec{Name: "n", Type: ColumnType{Kind: ColumnKindInt, Bits: 32}, Default: "7"},
 			`ALTER TABLE "t" ADD COLUMN "n" INTEGER NOT NULL DEFAULT 7;`,
 		},
 		{
@@ -128,10 +128,10 @@ func TestAddColumnFillsTheRowsPresent(t *testing.T) {
 
 	// SQLite has no DROP DEFAULT: such a column is added by rebuilding the table.
 	for column, rebuild := range map[ColumnSpec]bool{
-		{Name: "n", Type: ColumnType{Kind: KindInt}}:                                                 true,
-		{Name: "at", Type: ColumnType{Kind: KindTime, Nullable: true}, Default: "CURRENT_TIMESTAMP"}: true,
-		{Name: "n", Type: ColumnType{Kind: KindInt, Nullable: true}}:                                 false,
-		{Name: "n", Type: ColumnType{Kind: KindInt}, Default: "7"}:                                   false,
+		{Name: "n", Type: ColumnType{Kind: ColumnKindInt}}:                                                 true,
+		{Name: "at", Type: ColumnType{Kind: ColumnKindTime, Nullable: true}, Default: "CURRENT_TIMESTAMP"}: true,
+		{Name: "n", Type: ColumnType{Kind: ColumnKindInt, Nullable: true}}:                                 false,
+		{Name: "n", Type: ColumnType{Kind: ColumnKindInt}, Default: "7"}:                                   false,
 	} {
 		if got := AddNeedsRebuild(SQLiteDialect{}, column); got != rebuild {
 			t.Errorf("sqlite rebuilds to add %+v = %v, want %v", column, got, rebuild)
@@ -154,21 +154,21 @@ func TestSQLiteRetypeConvertsOrRefuses(t *testing.T) {
 		before, after ColumnKind
 		want          Retype
 	}{
-		{KindFloat, KindInt, RetypeConvert},
-		{KindInt, KindBool, RetypeConvert},
-		{KindFloat, KindBool, RetypeConvert},
-		{KindString, KindInt, RetypeMayFail},
-		{KindString, KindFloat, RetypeMayFail},
-		{KindString, KindBool, RetypeMayFail},
-		{KindString, KindTime, RetypeMayFail},
-		{KindInt, KindTime, RetypeMayFail},
-		{KindBytes, KindInt, RetypeMayFail},
-		{KindBool, KindInt, RetypeAsIs},
-		{KindInt, KindFloat, RetypeAsIs},
-		{KindInt, KindString, RetypeAsIs},
-		{KindTime, KindString, RetypeAsIs},
-		{KindString, KindBytes, RetypeAsIs},
-		{KindInt, KindInt, RetypeAsIs},
+		{ColumnKindFloat, ColumnKindInt, RetypeConvert},
+		{ColumnKindInt, ColumnKindBool, RetypeConvert},
+		{ColumnKindFloat, ColumnKindBool, RetypeConvert},
+		{ColumnKindString, ColumnKindInt, RetypeMayFail},
+		{ColumnKindString, ColumnKindFloat, RetypeMayFail},
+		{ColumnKindString, ColumnKindBool, RetypeMayFail},
+		{ColumnKindString, ColumnKindTime, RetypeMayFail},
+		{ColumnKindInt, ColumnKindTime, RetypeMayFail},
+		{ColumnKindBytes, ColumnKindInt, RetypeMayFail},
+		{ColumnKindBool, ColumnKindInt, RetypeAsIs},
+		{ColumnKindInt, ColumnKindFloat, RetypeAsIs},
+		{ColumnKindInt, ColumnKindString, RetypeAsIs},
+		{ColumnKindTime, ColumnKindString, RetypeAsIs},
+		{ColumnKindString, ColumnKindBytes, RetypeAsIs},
+		{ColumnKindInt, ColumnKindInt, RetypeAsIs},
 	} {
 		if got := SQLiteRetype(kind(c.before), kind(c.after)); got != c.want {
 			t.Errorf("SQLiteRetype(%s, %s) = %d, want %d", c.before, c.after, got, c.want)
@@ -176,23 +176,23 @@ func TestSQLiteRetypeConvertsOrRefuses(t *testing.T) {
 	}
 
 	// A raw type is the declaration's own business on either side.
-	if got := SQLiteRetype(ColumnType{Kind: KindString, RawType: "JSON"}, kind(KindInt)); got != RetypeAsIs {
+	if got := SQLiteRetype(ColumnType{Kind: ColumnKindString, RawType: "JSON"}, kind(ColumnKindInt)); got != RetypeAsIs {
 		t.Errorf("a raw type is classified %d", got)
 	}
 
-	if got := SQLiteRetypeSource(`"c"`, kind(KindInt)); got != `CASE typeof("c") WHEN 'real' THEN CAST(ROUND("c") AS INTEGER) ELSE "c" END` {
+	if got := SQLiteRetypeSource(`"c"`, kind(ColumnKindInt)); got != `CASE typeof("c") WHEN 'real' THEN CAST(ROUND("c") AS INTEGER) ELSE "c" END` {
 		t.Errorf("integer source = %s", got)
 	}
 
-	if got := SQLiteRetypeSource(`"c"`, kind(KindBool)); got != `CASE WHEN typeof("c") IN ('integer', 'real') THEN "c" <> 0 ELSE "c" END` {
+	if got := SQLiteRetypeSource(`"c"`, kind(ColumnKindBool)); got != `CASE WHEN typeof("c") IN ('integer', 'real') THEN "c" <> 0 ELSE "c" END` {
 		t.Errorf("boolean source = %s", got)
 	}
 
-	if got := SQLiteRetypeSource(`"c"`, kind(KindString)); got != `"c"` {
+	if got := SQLiteRetypeSource(`"c"`, kind(ColumnKindString)); got != `"c"` {
 		t.Errorf("text source = %s", got)
 	}
 
-	for k, word := range map[ColumnKind]string{KindInt: "an integer", KindFloat: "a number", KindBool: "a boolean", KindTime: "a time", KindString: "", KindBytes: ""} {
+	for k, word := range map[ColumnKind]string{ColumnKindInt: "an integer", ColumnKindFloat: "a number", ColumnKindBool: "a boolean", ColumnKindTime: "a time", ColumnKindString: "", ColumnKindBytes: ""} {
 		condition, got := SQLiteMisfit(`"c"`, kind(k))
 		if got != word || (condition == "") != (word == "") {
 			t.Errorf("SQLiteMisfit(%s) = %q, %q", k, condition, got)
@@ -206,7 +206,7 @@ func TestSQLiteRetypeConvertsOrRefuses(t *testing.T) {
 // declared, and where it does not, the difference stays.
 func TestAdoptSpellingTakesTheEnginesWord(t *testing.T) {
 	d := MySQLDialect{}
-	declared := ColumnSpec{Name: "c", Type: ColumnType{Kind: KindString, RawType: "DECIMAL(10)", Nullable: true}, Default: "(1+1)"}
+	declared := ColumnSpec{Name: "c", Type: ColumnType{Kind: ColumnKindString, RawType: "DECIMAL(10)", Nullable: true}, Default: "(1+1)"}
 	inspected := Column{Name: "c", Type: ColumnType{RawType: "decimal(10,0)", Nullable: true}, Default: "1 + 1", NativeType: "decimal(10,0)"}
 
 	equal := func(c Column) (bool, bool) {
@@ -239,8 +239,8 @@ func TestAdoptSpellingTakesTheEnginesWord(t *testing.T) {
 
 	// A PostgreSQL SERIAL off the key is read as filled by the database, which the
 	// declaration (a type:, no auto-increment key) is not: the probe says so.
-	serial := Column{Name: "c", Type: ColumnType{Kind: KindInt, Bits: 32}, AutoIncrement: true, Default: "nextval('t_c_seq'::regclass)", NativeType: "integer"}
-	raw := ColumnSpec{Name: "c", Type: ColumnType{Kind: KindString, RawType: "SERIAL"}}
+	serial := Column{Name: "c", Type: ColumnType{Kind: ColumnKindInt, Bits: 32}, AutoIncrement: true, Default: "nextval('t_c_seq'::regclass)", NativeType: "integer"}
+	raw := ColumnSpec{Name: "c", Type: ColumnType{Kind: ColumnKindString, RawType: "SERIAL"}}
 
 	if got := AdoptSpelling(PostgresDialect{}, serial, Spelling{Type: true, Default: true, Serial: true}, raw); got.AutoIncrement || got.Default != "" {
 		t.Errorf("a SERIAL column stayed %+v", got)

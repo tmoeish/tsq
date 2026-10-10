@@ -10,7 +10,7 @@ import (
 // types, SQLite no widths, and MySQL's own types need none.
 func TestRangeCheckFollowsTheFieldWhereTheTypeDoesNot(t *testing.T) {
 	integer := func(bits int, unsigned bool) ColumnSpec {
-		return ColumnSpec{Name: "n", Type: ColumnType{Kind: KindInt, Bits: bits, Unsigned: unsigned}}
+		return ColumnSpec{Name: "n", Type: ColumnType{Kind: ColumnKindInt, Bits: bits, Unsigned: unsigned}}
 	}
 
 	for _, c := range []struct {
@@ -33,8 +33,8 @@ func TestRangeCheckFollowsTheFieldWhereTheTypeDoesNot(t *testing.T) {
 		{MySQL, integer(32, true), ""},
 		{MySQL, integer(16, false), ""},
 		{Postgres, ColumnSpec{Name: "n", Type: ColumnType{RawType: "INTEGER UNSIGNED"}}, ""},
-		{Postgres, ColumnSpec{Name: "id", Type: ColumnType{Kind: KindInt, Bits: 64, Unsigned: true}, PrimaryKey: true, AutoIncrement: true}, ""},
-		{SQLite, ColumnSpec{Name: "n", Type: ColumnType{Kind: KindInt, Bits: 16}, Generated: "1 + 1"}, ""},
+		{Postgres, ColumnSpec{Name: "id", Type: ColumnType{Kind: ColumnKindInt, Bits: 64, Unsigned: true}, PrimaryKey: true, AutoIncrement: true}, ""},
+		{SQLite, ColumnSpec{Name: "n", Type: ColumnType{Kind: ColumnKindInt, Bits: 16}, Generated: "1 + 1"}, ""},
 	} {
 		d, _ := For(c.dialect)
 
@@ -80,9 +80,9 @@ func TestRangeChecksCompareByTheirBounds(t *testing.T) {
 // width changed, dropped where the field no longer needs one.
 func TestPostgresAlterColumnFollowsTheRangeCheck(t *testing.T) {
 	d := PostgresDialect{}
-	unsigned32 := ColumnSpec{Name: "qty", Type: ColumnType{Kind: KindInt, Bits: 32, Unsigned: true}}
-	unsigned16 := ColumnSpec{Name: "qty", Type: ColumnType{Kind: KindInt, Bits: 16, Unsigned: true}}
-	signed64 := ColumnSpec{Name: "qty", Type: ColumnType{Kind: KindInt, Bits: 64}}
+	unsigned32 := ColumnSpec{Name: "qty", Type: ColumnType{Kind: ColumnKindInt, Bits: 32, Unsigned: true}}
+	unsigned16 := ColumnSpec{Name: "qty", Type: ColumnType{Kind: ColumnKindInt, Bits: 16, Unsigned: true}}
+	signed64 := ColumnSpec{Name: "qty", Type: ColumnType{Kind: ColumnKindInt, Bits: 64}}
 
 	added := d.AlterColumnSQL("t", Column{ColumnSpec: unsigned32, NativeType: "bigint"}, unsigned32)
 	if len(added) != 1 || added[0] != `ALTER TABLE "t" ADD CONSTRAINT "ck_qty" CHECK ("qty" >= 0 AND "qty" <= 4294967295);` {
@@ -101,7 +101,7 @@ func TestPostgresAlterColumnFollowsTheRangeCheck(t *testing.T) {
 		t.Errorf("a narrower field:\n%s\nwant:\n%s", strings.Join(narrowed, "\n"), strings.Join(want, "\n"))
 	}
 
-	text := ColumnSpec{Name: "qty", Type: ColumnType{Kind: KindString, Size: 40}}
+	text := ColumnSpec{Name: "qty", Type: ColumnType{Kind: ColumnKindString, Size: 40}}
 	toText := d.AlterColumnSQL("t", Column{ColumnSpec: unsigned32, NativeType: "bigint", Check: `CHECK (((qty >= 0) AND (qty <= 4294967295)))`}, text)
 	if len(toText) != 2 || !strings.HasSuffix(toText[0], `DROP CONSTRAINT "ck_qty";`) || !strings.Contains(toText[1], `TYPE VARCHAR(40) USING "qty"::TEXT`) {
 		t.Errorf("a text field = %v; want the constraint dropped before the type, and not added back", toText)

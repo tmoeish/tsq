@@ -64,7 +64,7 @@ func newOrderTable() OrderTable {
 			{
 				Name: "id",
 				Type: tsqdialect.ColumnType{
-					Kind: tsqdialect.KindInt,
+					Kind: tsqdialect.ColumnKindInt,
 					Bits: 64,
 				},
 				PrimaryKey:    true,
@@ -73,20 +73,20 @@ func newOrderTable() OrderTable {
 			{
 				Name: "created_at",
 				Type: tsqdialect.ColumnType{
-					Kind: tsqdialect.KindTime,
+					Kind: tsqdialect.ColumnKindTime,
 				},
 				Default: "CURRENT_TIMESTAMP",
 			},
 			{
 				Name: "updated_at",
 				Type: tsqdialect.ColumnType{
-					Kind: tsqdialect.KindTime,
+					Kind: tsqdialect.ColumnKindTime,
 				},
 			},
 			{
 				Name: "version",
 				Type: tsqdialect.ColumnType{
-					Kind: tsqdialect.KindInt,
+					Kind: tsqdialect.ColumnKindInt,
 					Bits: 64,
 				},
 				Default: "1",
@@ -94,14 +94,14 @@ func newOrderTable() OrderTable {
 			{
 				Name: "customer_id",
 				Type: tsqdialect.ColumnType{
-					Kind: tsqdialect.KindInt,
+					Kind: tsqdialect.ColumnKindInt,
 					Bits: 64,
 				},
 			},
 			{
 				Name: "note",
 				Type: tsqdialect.ColumnType{
-					Kind:     tsqdialect.KindString,
+					Kind:     tsqdialect.ColumnKindString,
 					Nullable: true,
 					Size:     255,
 				},
@@ -109,14 +109,14 @@ func newOrderTable() OrderTable {
 			{
 				Name: "status",
 				Type: tsqdialect.ColumnType{
-					Kind: tsqdialect.KindString,
+					Kind: tsqdialect.ColumnKindString,
 					Size: 16,
 				},
 			},
 			{
 				Name: "total_cents",
 				Type: tsqdialect.ColumnType{
-					Kind: tsqdialect.KindInt,
+					Kind: tsqdialect.ColumnKindInt,
 					Bits: 64,
 				},
 			},
@@ -136,14 +136,14 @@ func (t OrderTable) As(alias string) OrderTable {
 
 	return OrderTable{
 		TableOf:    a,
-		ID:         t.ID.WithTable(a),
-		CustomerID: t.CustomerID.WithTable(a),
-		Status:     t.Status.WithTable(a),
-		TotalCents: t.TotalCents.WithTable(a),
+		ID:         t.ID.Rebind(a),
+		CustomerID: t.CustomerID.Rebind(a),
+		Status:     t.Status.Rebind(a),
+		TotalCents: t.TotalCents.Rebind(a),
 		Note:       tsq.RebindNull(t.Note, a),
-		CreatedAt:  t.CreatedAt.WithTable(a),
-		UpdatedAt:  t.UpdatedAt.WithTable(a),
-		Version:    t.Version.WithTable(a),
+		CreatedAt:  t.CreatedAt.Rebind(a),
+		UpdatedAt:  t.UpdatedAt.Rebind(a),
+		Version:    t.Version.Rebind(a),
 	}
 }
 

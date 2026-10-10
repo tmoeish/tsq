@@ -56,13 +56,13 @@ func TestNewRuntimeTablePolicyCreateMissingCreatesTable(t *testing.T) {
 		[]Table{registered(table, []tsqdialect.ColumnSpec{
 			{
 				Name:          "id",
-				Type:          tsqdialect.ColumnType{Kind: tsqdialect.KindInt, Bits: 64},
+				Type:          tsqdialect.ColumnType{Kind: tsqdialect.ColumnKindInt, Bits: 64},
 				PrimaryKey:    true,
 				AutoIncrement: true,
 			},
 			{
 				Name: "name",
-				Type: tsqdialect.ColumnType{Kind: tsqdialect.KindString, Size: 120},
+				Type: tsqdialect.ColumnType{Kind: tsqdialect.ColumnKindString, Size: 120},
 			},
 		})},
 		WithTablePolicy(SchemaPolicyCreateMissing))
@@ -100,13 +100,13 @@ func TestNewRuntimeTablePoliciesAddMissingColumns(t *testing.T) {
 				[]Table{registered(table, []tsqdialect.ColumnSpec{
 					{
 						Name:          "id",
-						Type:          tsqdialect.ColumnType{Kind: tsqdialect.KindInt, Bits: 64},
+						Type:          tsqdialect.ColumnType{Kind: tsqdialect.ColumnKindInt, Bits: 64},
 						PrimaryKey:    true,
 						AutoIncrement: true,
 					},
 					{
 						Name: "name",
-						Type: tsqdialect.ColumnType{Kind: tsqdialect.KindString, Size: 120},
+						Type: tsqdialect.ColumnType{Kind: tsqdialect.ColumnKindString, Size: 120},
 					},
 				})},
 				WithTablePolicy(policy))
@@ -132,14 +132,14 @@ func TestColumnsEqualIgnoresAutoIncrementSequenceDefault(t *testing.T) {
 	dialect := sqld.PostgresDialect{}
 	inspected := sqld.Column{
 		Name:          "id",
-		Type:          tsqdialect.ColumnType{Kind: tsqdialect.KindInt, Bits: 64},
+		Type:          tsqdialect.ColumnType{Kind: tsqdialect.ColumnKindInt, Bits: 64},
 		PrimaryKey:    true,
 		AutoIncrement: true,
 		Default:       "nextval('users_id_seq'::regclass)", NativeType: "bigint",
 	}
 	declared := tsqdialect.ColumnSpec{
 		Name:          "id",
-		Type:          tsqdialect.ColumnType{Kind: tsqdialect.KindInt, Bits: 64},
+		Type:          tsqdialect.ColumnType{Kind: tsqdialect.ColumnKindInt, Bits: 64},
 		PrimaryKey:    true,
 		AutoIncrement: true,
 	}
@@ -160,7 +160,7 @@ func TestNewRuntimeReconcileRawTypeTextProducesNoDDL(t *testing.T) {
 	registration := wideTableOf("notes", []string{"id", "body"}, []tsqdialect.ColumnSpec{
 		{
 			Name:          "id",
-			Type:          tsqdialect.ColumnType{Kind: tsqdialect.KindInt, Bits: 64},
+			Type:          tsqdialect.ColumnType{Kind: tsqdialect.ColumnKindInt, Bits: 64},
 			PrimaryKey:    true,
 			AutoIncrement: true,
 		},
@@ -206,18 +206,18 @@ func TestNewRuntimeReconcileRebuildPreservesDataAndIndexes(t *testing.T) {
 	registration := registered(table, []tsqdialect.ColumnSpec{
 		{
 			Name:          "id",
-			Type:          tsqdialect.ColumnType{Kind: tsqdialect.KindInt, Bits: 64},
+			Type:          tsqdialect.ColumnType{Kind: tsqdialect.ColumnKindInt, Bits: 64},
 			PrimaryKey:    true,
 			AutoIncrement: true,
 		},
 		{
 			// INTEGER -> VARCHAR drift forces the SQLite rebuild path.
 			Name: "age",
-			Type: tsqdialect.ColumnType{Kind: tsqdialect.KindString, Size: 60, Nullable: true},
+			Type: tsqdialect.ColumnType{Kind: tsqdialect.ColumnKindString, Size: 60, Nullable: true},
 		},
 		{
 			Name: "name",
-			Type: tsqdialect.ColumnType{Kind: tsqdialect.KindString, Size: 120, Nullable: true},
+			Type: tsqdialect.ColumnType{Kind: tsqdialect.ColumnKindString, Size: 120, Nullable: true},
 		},
 	})
 
@@ -237,7 +237,7 @@ func TestNewRuntimeReconcileRebuildPreservesDataAndIndexes(t *testing.T) {
 
 	rebuilt := false
 	for _, column := range columns {
-		if column.Name == "age" && column.Type.Kind == tsqdialect.KindString {
+		if column.Name == "age" && column.Type.Kind == tsqdialect.ColumnKindString {
 			rebuilt = true
 		}
 	}
@@ -287,9 +287,9 @@ func retypedUsers() Table {
 	table, _ := newStrictMockTable("users", "id", "age", "name")
 
 	return registered(table, []tsqdialect.ColumnSpec{
-		{Name: "id", Type: tsqdialect.ColumnType{Kind: tsqdialect.KindInt, Bits: 64}, PrimaryKey: true, AutoIncrement: true},
-		{Name: "age", Type: tsqdialect.ColumnType{Kind: tsqdialect.KindString, Size: 60, Nullable: true}},
-		{Name: "name", Type: tsqdialect.ColumnType{Kind: tsqdialect.KindString, Size: 120, Nullable: true}},
+		{Name: "id", Type: tsqdialect.ColumnType{Kind: tsqdialect.ColumnKindInt, Bits: 64}, PrimaryKey: true, AutoIncrement: true},
+		{Name: "age", Type: tsqdialect.ColumnType{Kind: tsqdialect.ColumnKindString, Size: 60, Nullable: true}},
+		{Name: "name", Type: tsqdialect.ColumnType{Kind: tsqdialect.ColumnKindString, Size: 120, Nullable: true}},
 	})
 }
 
@@ -363,7 +363,7 @@ func TestReconcileRebuildKeepsIndexesAndTriggersAsCreated(t *testing.T) {
 	t.Cleanup(func() { _ = rt.Close() })
 
 	columns, _, err := rt.dialect.InspectColumns(ctx, rt, "users")
-	if err != nil || !slices.ContainsFunc(columns, func(c sqld.Column) bool { return c.Name == "age" && c.Type.Kind == tsqdialect.KindString }) {
+	if err != nil || !slices.ContainsFunc(columns, func(c sqld.Column) bool { return c.Name == "age" && c.Type.Kind == tsqdialect.ColumnKindString }) {
 		t.Fatalf("columns = %+v, %v; want age rebuilt as a string", columns, err)
 	}
 
@@ -436,7 +436,7 @@ func TestReconcileRefusesARebuildThatWouldLoseSomething(t *testing.T) {
 			}
 
 			columns, _, err := db.dialect.InspectColumns(ctx, db, "users")
-			if err != nil || !slices.ContainsFunc(columns, func(c sqld.Column) bool { return c.Name == "age" && c.Type.Kind == tsqdialect.KindInt }) {
+			if err != nil || !slices.ContainsFunc(columns, func(c sqld.Column) bool { return c.Name == "age" && c.Type.Kind == tsqdialect.ColumnKindInt }) {
 				t.Fatalf("columns = %+v, %v; want the table untouched", columns, err)
 			}
 		})
@@ -463,9 +463,9 @@ func TestReconcileDropsUndeclaredColumns(t *testing.T) {
 
 	table, _ := newStrictMockTable("users", "id", "age", "name")
 	declared := registered(table, []tsqdialect.ColumnSpec{
-		{Name: "id", Type: tsqdialect.ColumnType{Kind: tsqdialect.KindInt, Bits: 64}, PrimaryKey: true, AutoIncrement: true},
-		{Name: "age", Type: tsqdialect.ColumnType{Kind: tsqdialect.KindInt, Bits: 64, Nullable: true}},
-		{Name: "name", Type: tsqdialect.ColumnType{Kind: tsqdialect.KindString, Size: 120, Nullable: true}},
+		{Name: "id", Type: tsqdialect.ColumnType{Kind: tsqdialect.ColumnKindInt, Bits: 64}, PrimaryKey: true, AutoIncrement: true},
+		{Name: "age", Type: tsqdialect.ColumnType{Kind: tsqdialect.ColumnKindInt, Bits: 64, Nullable: true}},
+		{Name: "name", Type: tsqdialect.ColumnType{Kind: tsqdialect.ColumnKindString, Size: 120, Nullable: true}},
 	})
 
 	hasLegacy := func() bool {
@@ -520,8 +520,8 @@ func TestFailedDDLIsNotLoggedAsApplied(t *testing.T) {
 	// A type that is not SQL makes the ADD COLUMN a syntax error.
 	table, _ := newStrictMockTable("users", "id", "name", "age")
 	declared := registered(table, []tsqdialect.ColumnSpec{
-		{Name: "id", Type: tsqdialect.ColumnType{Kind: tsqdialect.KindInt, Bits: 64}, PrimaryKey: true, AutoIncrement: true},
-		{Name: "name", Type: tsqdialect.ColumnType{Kind: tsqdialect.KindString, Size: 120, Nullable: true}},
+		{Name: "id", Type: tsqdialect.ColumnType{Kind: tsqdialect.ColumnKindInt, Bits: 64}, PrimaryKey: true, AutoIncrement: true},
+		{Name: "name", Type: tsqdialect.ColumnType{Kind: tsqdialect.ColumnKindString, Size: 120, Nullable: true}},
 		{Name: "age", Type: tsqdialect.ColumnType{RawType: "BROKEN(", Nullable: true}},
 	})
 
@@ -573,8 +573,8 @@ func TestSQLiteFindsATableWhateverTheCaseOfItsName(t *testing.T) {
 
 	table, _ := newStrictMockTable("users", "id", "name")
 	declared := registered(table, []tsqdialect.ColumnSpec{
-		{Name: "id", Type: tsqdialect.ColumnType{Kind: tsqdialect.KindInt, Bits: 64}, PrimaryKey: true, AutoIncrement: true},
-		{Name: "name", Type: tsqdialect.ColumnType{Kind: tsqdialect.KindString, Size: 120}, Default: "''"},
+		{Name: "id", Type: tsqdialect.ColumnType{Kind: tsqdialect.ColumnKindInt, Bits: 64}, PrimaryKey: true, AutoIncrement: true},
+		{Name: "name", Type: tsqdialect.ColumnType{Kind: tsqdialect.ColumnKindString, Size: 120}, Default: "''"},
 	})
 
 	logger := &recordingLogger{}
@@ -604,8 +604,8 @@ func TestSQLiteRowidKeyWithoutAutoincrementIsNotDrift(t *testing.T) {
 
 	table, _ := newStrictMockTable("users", "id", "name")
 	declared := registered(table, []tsqdialect.ColumnSpec{
-		{Name: "id", Type: tsqdialect.ColumnType{Kind: tsqdialect.KindInt, Bits: 64}, PrimaryKey: true, AutoIncrement: true},
-		{Name: "name", Type: tsqdialect.ColumnType{Kind: tsqdialect.KindString, Size: 120}, Default: "''"},
+		{Name: "id", Type: tsqdialect.ColumnType{Kind: tsqdialect.ColumnKindInt, Bits: 64}, PrimaryKey: true, AutoIncrement: true},
+		{Name: "name", Type: tsqdialect.ColumnType{Kind: tsqdialect.ColumnKindString, Size: 120}, Default: "''"},
 	})
 
 	rt, err := Open(ctx, "sqlite", dsn, []Table{declared}, WithTablePolicy(SchemaPolicyValidate), WithIndexPolicy(SchemaPolicyManual))
@@ -634,8 +634,8 @@ func TestReconcileMatchesColumnNamesWithoutCase(t *testing.T) {
 
 	table, _ := newStrictMockTable("users", "id", "name")
 	declared := registered(table, []tsqdialect.ColumnSpec{
-		{Name: "id", Type: tsqdialect.ColumnType{Kind: tsqdialect.KindInt, Bits: 64}, PrimaryKey: true, AutoIncrement: true},
-		{Name: "name", Type: tsqdialect.ColumnType{Kind: tsqdialect.KindString, Size: 120}, Default: "''"},
+		{Name: "id", Type: tsqdialect.ColumnType{Kind: tsqdialect.ColumnKindInt, Bits: 64}, PrimaryKey: true, AutoIncrement: true},
+		{Name: "name", Type: tsqdialect.ColumnType{Kind: tsqdialect.ColumnKindString, Size: 120}, Default: "''"},
 	})
 
 	rt, err := Open(ctx, "sqlite", dsn, []Table{declared}, WithTablePolicy(SchemaPolicyReconcile), WithIndexPolicy(SchemaPolicyManual))
@@ -670,11 +670,11 @@ func TestReconcileRebuildLeavesGeneratedColumnsToTheTable(t *testing.T) {
 
 	table, _ := newStrictMockTable("users", "id", "name", "slug", "note")
 	declared := registered(table, []tsqdialect.ColumnSpec{
-		{Name: "id", Type: tsqdialect.ColumnType{Kind: tsqdialect.KindInt, Bits: 64}, PrimaryKey: true, AutoIncrement: true},
+		{Name: "id", Type: tsqdialect.ColumnType{Kind: tsqdialect.ColumnKindInt, Bits: 64}, PrimaryKey: true, AutoIncrement: true},
 		// INTEGER -> VARCHAR forces the rebuild.
-		{Name: "name", Type: tsqdialect.ColumnType{Kind: tsqdialect.KindString, Size: 120}},
-		{Name: "note", Type: tsqdialect.ColumnType{Kind: tsqdialect.KindString, Size: 60}},
-		{Name: "slug", Type: tsqdialect.ColumnType{Kind: tsqdialect.KindString, Size: 120}, Fill: tsqdialect.FillGenerated, Generated: "lower(name)"},
+		{Name: "name", Type: tsqdialect.ColumnType{Kind: tsqdialect.ColumnKindString, Size: 120}},
+		{Name: "note", Type: tsqdialect.ColumnType{Kind: tsqdialect.ColumnKindString, Size: 60}},
+		{Name: "slug", Type: tsqdialect.ColumnType{Kind: tsqdialect.ColumnKindString, Size: 120}, Fill: tsqdialect.FillGenerated, Generated: "lower(name)"},
 	})
 
 	rt, err := Open(ctx, "sqlite", dsn, []Table{declared}, WithTablePolicy(SchemaPolicyReconcile), WithIndexPolicy(SchemaPolicyManual))
@@ -709,8 +709,8 @@ func TestSchemaPoliciesRunOnOneConnection(t *testing.T) {
 
 	// code turns from an integer into text: SQLite rebuilds the table.
 	things := wideTableOf("things", []string{"id", "code"}, []tsqdialect.ColumnSpec{
-		{Name: "id", Type: tsqdialect.ColumnType{Kind: tsqdialect.KindInt, Bits: 64}, PrimaryKey: true},
-		{Name: "code", Type: tsqdialect.ColumnType{Kind: tsqdialect.KindString, Size: 16}},
+		{Name: "id", Type: tsqdialect.ColumnType{Kind: tsqdialect.ColumnKindInt, Bits: 64}, PrimaryKey: true},
+		{Name: "code", Type: tsqdialect.ColumnType{Kind: tsqdialect.ColumnKindString, Size: 16}},
 	}, []IndexSpec{{Name: "idx_things_code", Columns: []string{"code"}}}, func(r *thingsRow) *[16]slot { return &r.Fields })
 
 	for _, tables := range [][]Table{{Users, Orders}, {Users, Orders}, {things}} {
@@ -737,7 +737,7 @@ func TestReconcileDropsAnIndexedColumnOnSQLite(t *testing.T) {
 	}
 
 	crates := wideTableOf("crates", []string{"id", "name"}, []tsqdialect.ColumnSpec{
-		{Name: "id", Type: tsqdialect.ColumnType{Kind: tsqdialect.KindInt, Bits: 64}, PrimaryKey: true},
+		{Name: "id", Type: tsqdialect.ColumnType{Kind: tsqdialect.ColumnKindInt, Bits: 64}, PrimaryKey: true},
 		{Name: "name", Type: tsqdialect.ColumnType{RawType: "TEXT", Nullable: true}},
 	}, nil, func(r *cratesRow) *[16]slot { return &r.Fields })
 
@@ -773,7 +773,7 @@ func TestValidateReportsATypedMismatch(t *testing.T) {
 	}
 
 	gadgets := wideTableOf("gadgets", []string{"id", "name"}, []tsqdialect.ColumnSpec{
-		{Name: "id", Type: tsqdialect.ColumnType{Kind: tsqdialect.KindInt, Bits: 64}, PrimaryKey: true},
+		{Name: "id", Type: tsqdialect.ColumnType{Kind: tsqdialect.ColumnKindInt, Bits: 64}, PrimaryKey: true},
 		{Name: "name", Type: tsqdialect.ColumnType{RawType: "TEXT", Nullable: true}},
 	}, nil, func(r *gadgetsRow) *[16]slot { return &r.Fields })
 
@@ -797,9 +797,9 @@ func TestMismatchSaysWhatDiffers(t *testing.T) {
 	}
 
 	gadgets := wideTableOf("gadgets", []string{"id", "qty", "note"}, []tsqdialect.ColumnSpec{
-		{Name: "id", Type: tsqdialect.ColumnType{Kind: tsqdialect.KindInt, Bits: 64}, PrimaryKey: true},
-		{Name: "qty", Type: tsqdialect.ColumnType{Kind: tsqdialect.KindInt, Bits: 32}},
-		{Name: "note", Type: tsqdialect.ColumnType{Kind: tsqdialect.KindString, Size: 10, Nullable: true}},
+		{Name: "id", Type: tsqdialect.ColumnType{Kind: tsqdialect.ColumnKindInt, Bits: 64}, PrimaryKey: true},
+		{Name: "qty", Type: tsqdialect.ColumnType{Kind: tsqdialect.ColumnKindInt, Bits: 32}},
+		{Name: "note", Type: tsqdialect.ColumnType{Kind: tsqdialect.ColumnKindString, Size: 10, Nullable: true}},
 	}, nil, func(r *gadgetsRow) *[16]slot { return &r.Fields })
 
 	_, err := Open(context.Background(), "sqlite", dsn, []Table{gadgets}, WithSchemaPolicy(SchemaPolicyValidate))

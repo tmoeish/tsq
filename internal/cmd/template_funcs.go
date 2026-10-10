@@ -21,12 +21,12 @@ const (
 // TestGeneratedCodeReferencesOnlyRealSymbols checks every name generated code can
 // reference; a prefix concatenated in the template would hide a renamed constant.
 var columnKindRefs = map[string]string{
-	"bool":   "tsqdialect.KindBool",
-	"bytes":  "tsqdialect.KindBytes",
-	"float":  "tsqdialect.KindFloat",
-	"int":    "tsqdialect.KindInt",
-	"string": "tsqdialect.KindString",
-	"time":   "tsqdialect.KindTime",
+	"bool":   "tsqdialect.ColumnKindBool",
+	"bytes":  "tsqdialect.ColumnKindBytes",
+	"float":  "tsqdialect.ColumnKindFloat",
+	"int":    "tsqdialect.ColumnKindInt",
+	"string": "tsqdialect.ColumnKindString",
+	"time":   "tsqdialect.ColumnKindTime",
 }
 
 // columnKindRef returns the qualified dialect constant for a column kind.

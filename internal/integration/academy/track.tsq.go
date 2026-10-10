@@ -59,7 +59,7 @@ func newTrackTable() TrackTable {
 			{
 				Name: "id",
 				Type: tsqdialect.ColumnType{
-					Kind: tsqdialect.KindInt,
+					Kind: tsqdialect.ColumnKindInt,
 					Bits: 64,
 				},
 				PrimaryKey:    true,
@@ -68,21 +68,21 @@ func newTrackTable() TrackTable {
 			{
 				Name: "created_at",
 				Type: tsqdialect.ColumnType{
-					Kind:     tsqdialect.KindTime,
+					Kind:     tsqdialect.ColumnKindTime,
 					Nullable: true,
 				},
 			},
 			{
 				Name: "description",
 				Type: tsqdialect.ColumnType{
-					Kind: tsqdialect.KindString,
+					Kind: tsqdialect.ColumnKindString,
 					Size: 1024,
 				},
 			},
 			{
 				Name: "name",
 				Type: tsqdialect.ColumnType{
-					Kind: tsqdialect.KindString,
+					Kind: tsqdialect.ColumnKindString,
 					Size: 120,
 				},
 			},
@@ -90,7 +90,7 @@ func newTrackTable() TrackTable {
 				Name: "skill_items",
 				Type: tsqdialect.ColumnType{
 					RawType: "JSON",
-					Kind:    tsqdialect.KindBytes,
+					Kind:    tsqdialect.ColumnKindBytes,
 				},
 			},
 		},
@@ -109,11 +109,11 @@ func (t TrackTable) As(alias string) TrackTable {
 
 	return TrackTable{
 		TableOf:     a,
-		ID:          t.ID.WithTable(a),
+		ID:          t.ID.Rebind(a),
 		CreatedAt:   tsq.RebindNull(t.CreatedAt, a),
-		Name:        t.Name.WithTable(a),
-		Description: t.Description.WithTable(a),
-		SkillItems:  t.SkillItems.WithTable(a),
+		Name:        t.Name.Rebind(a),
+		Description: t.Description.Rebind(a),
+		SkillItems:  t.SkillItems.Rebind(a),
 	}
 }
 

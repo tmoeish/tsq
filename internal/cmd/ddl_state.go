@@ -1417,7 +1417,7 @@ func sqliteAlterUnenforced(before, after ddlSnapshotColumn) bool {
 // sqliteConversionNote says what a rebuild does to the values of a column that
 // becomes t, for the note above the statements.
 func sqliteConversionNote(t tsqdialect.ColumnType) string {
-	if t.Kind == tsqdialect.KindBool {
+	if t.Kind == tsqdialect.ColumnKindBool {
 		return "any number but zero becomes true"
 	}
 

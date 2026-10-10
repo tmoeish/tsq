@@ -163,9 +163,9 @@ func TestPageKeysetOverAJoinNeedsEveryKey(t *testing.T) {
 	}
 
 	cte := CTE("ids", Select(User_ID).From(Users))
-	overCTE := Select(User_ID.WithTable(cte)).From(cte).MustBuild()
+	overCTE := Select(User_ID.Rebind(cte)).From(cte).MustBuild()
 
-	if _, err := overCTE.PageKeyset(ctx, rt, Keyset{OrderBy: []OrderBy{User_ID.WithTable(cte).Asc()}}); err == nil || !strings.Contains(err.Error(), "has none") {
+	if _, err := overCTE.PageKeyset(ctx, rt, Keyset{OrderBy: []OrderBy{User_ID.Rebind(cte).Asc()}}); err == nil || !strings.Contains(err.Error(), "has none") {
 		t.Fatalf("PageKeyset over a CTE = %v; want it refused", err)
 	}
 }

@@ -50,7 +50,7 @@ func newTodoTable() TodoTable {
 			{
 				Name: "id",
 				Type: tsqdialect.ColumnType{
-					Kind: tsqdialect.KindInt,
+					Kind: tsqdialect.ColumnKindInt,
 					Bits: 64,
 				},
 				PrimaryKey:    true,
@@ -59,20 +59,20 @@ func newTodoTable() TodoTable {
 			{
 				Name: "created_at",
 				Type: tsqdialect.ColumnType{
-					Kind: tsqdialect.KindTime,
+					Kind: tsqdialect.ColumnKindTime,
 				},
 				Default: "CURRENT_TIMESTAMP",
 			},
 			{
 				Name: "done",
 				Type: tsqdialect.ColumnType{
-					Kind: tsqdialect.KindBool,
+					Kind: tsqdialect.ColumnKindBool,
 				},
 			},
 			{
 				Name: "title",
 				Type: tsqdialect.ColumnType{
-					Kind: tsqdialect.KindString,
+					Kind: tsqdialect.ColumnKindString,
 					Size: 200,
 				},
 			},
@@ -89,10 +89,10 @@ func (t TodoTable) As(alias string) TodoTable {
 
 	return TodoTable{
 		TableOf:   a,
-		ID:        t.ID.WithTable(a),
-		Title:     t.Title.WithTable(a),
-		Done:      t.Done.WithTable(a),
-		CreatedAt: t.CreatedAt.WithTable(a),
+		ID:        t.ID.Rebind(a),
+		Title:     t.Title.Rebind(a),
+		Done:      t.Done.Rebind(a),
+		CreatedAt: t.CreatedAt.Rebind(a),
 	}
 }
 

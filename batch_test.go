@@ -27,12 +27,12 @@ var bindLimitTable = func() *TableOf[wide, int64] {
 	h := NewTable[wide, int64]("wide_rows")
 	id := NewColumn(h, "id", "id", func(r *wide) *int64 { return &r.ID })
 	cols := []BoundColumn[wide]{id}
-	schema := []tsqdialect.ColumnSpec{{Name: "id", Type: tsqdialect.ColumnType{Kind: tsqdialect.KindInt, Bits: 64}, PrimaryKey: true, AutoIncrement: true}}
+	schema := []tsqdialect.ColumnSpec{{Name: "id", Type: tsqdialect.ColumnType{Kind: tsqdialect.ColumnKindInt, Bits: 64}, PrimaryKey: true, AutoIncrement: true}}
 
 	for i := range wideColumns - 1 {
 		name := fmt.Sprintf("c%d", i)
 		cols = append(cols, NewColumn(h, name, name, func(r *wide) *int64 { return &r.Values[i] }))
-		schema = append(schema, tsqdialect.ColumnSpec{Name: name, Type: tsqdialect.ColumnType{Kind: tsqdialect.KindInt, Bits: 64}})
+		schema = append(schema, tsqdialect.ColumnSpec{Name: name, Type: tsqdialect.ColumnType{Kind: tsqdialect.ColumnKindInt, Bits: 64}})
 	}
 
 	return h.Define(TableSpec[wide, int64]{Columns: cols, PrimaryKey: id, AutoIncrement: true, ColumnSpecs: schema})

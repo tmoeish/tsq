@@ -82,7 +82,7 @@ func newCourseTable() CourseTable {
 			{
 				Name: "id",
 				Type: tsqdialect.ColumnType{
-					Kind: tsqdialect.KindInt,
+					Kind: tsqdialect.ColumnKindInt,
 					Bits: 64,
 				},
 				PrimaryKey:    true,
@@ -91,7 +91,7 @@ func newCourseTable() CourseTable {
 			{
 				Name: "created_at",
 				Type: tsqdialect.ColumnType{
-					Kind:     tsqdialect.KindTime,
+					Kind:     tsqdialect.ColumnKindTime,
 					Nullable: true,
 				},
 			},
@@ -99,7 +99,7 @@ func newCourseTable() CourseTable {
 				Name: "blurb",
 				Type: tsqdialect.ColumnType{
 					RawType:  "TEXT",
-					Kind:     tsqdialect.KindString,
+					Kind:     tsqdialect.ColumnKindString,
 					Nullable: true,
 					Size:     255,
 				},
@@ -109,7 +109,7 @@ func newCourseTable() CourseTable {
 			{
 				Name: "currency",
 				Type: tsqdialect.ColumnType{
-					Kind:     tsqdialect.KindString,
+					Kind:     tsqdialect.ColumnKindString,
 					Nullable: true,
 					Size:     3,
 				},
@@ -119,41 +119,41 @@ func newCourseTable() CourseTable {
 			{
 				Name: "instructor_id",
 				Type: tsqdialect.ColumnType{
-					Kind: tsqdialect.KindInt,
+					Kind: tsqdialect.ColumnKindInt,
 					Bits: 64,
 				},
 			},
 			{
 				Name: "level",
 				Type: tsqdialect.ColumnType{
-					Kind: tsqdialect.KindInt,
+					Kind: tsqdialect.ColumnKindInt,
 					Bits: 32,
 				},
 			},
 			{
 				Name: "list_price_cents",
 				Type: tsqdialect.ColumnType{
-					Kind: tsqdialect.KindInt,
+					Kind: tsqdialect.ColumnKindInt,
 					Bits: 64,
 				},
 			},
 			{
 				Name: "prerequisite_id",
 				Type: tsqdialect.ColumnType{
-					Kind: tsqdialect.KindInt,
+					Kind: tsqdialect.ColumnKindInt,
 					Bits: 64,
 				},
 			},
 			{
 				Name: "published",
 				Type: tsqdialect.ColumnType{
-					Kind: tsqdialect.KindBool,
+					Kind: tsqdialect.ColumnKindBool,
 				},
 			},
 			{
 				Name: "slug",
 				Type: tsqdialect.ColumnType{
-					Kind: tsqdialect.KindString,
+					Kind: tsqdialect.ColumnKindString,
 					Size: 160,
 				},
 				Fill:      tsqdialect.FillGenerated,
@@ -162,21 +162,21 @@ func newCourseTable() CourseTable {
 			{
 				Name: "summary",
 				Type: tsqdialect.ColumnType{
-					Kind: tsqdialect.KindString,
+					Kind: tsqdialect.ColumnKindString,
 					Size: 4096,
 				},
 			},
 			{
 				Name: "title",
 				Type: tsqdialect.ColumnType{
-					Kind: tsqdialect.KindString,
+					Kind: tsqdialect.ColumnKindString,
 					Size: 160,
 				},
 			},
 			{
 				Name: "track_id",
 				Type: tsqdialect.ColumnType{
-					Kind: tsqdialect.KindInt,
+					Kind: tsqdialect.ColumnKindInt,
 					Bits: 64,
 				},
 			},
@@ -200,19 +200,19 @@ func (t CourseTable) As(alias string) CourseTable {
 
 	return CourseTable{
 		TableOf:        a,
-		ID:             t.ID.WithTable(a),
+		ID:             t.ID.Rebind(a),
 		CreatedAt:      tsq.RebindNull(t.CreatedAt, a),
-		TrackID:        t.TrackID.WithTable(a),
-		InstructorID:   t.InstructorID.WithTable(a),
-		PrerequisiteID: t.PrerequisiteID.WithTable(a),
-		Title:          t.Title.WithTable(a),
-		Summary:        t.Summary.WithTable(a),
-		Level:          t.Level.WithTable(a),
-		ListPriceCents: t.ListPriceCents.WithTable(a),
-		Published:      t.Published.WithTable(a),
+		TrackID:        t.TrackID.Rebind(a),
+		InstructorID:   t.InstructorID.Rebind(a),
+		PrerequisiteID: t.PrerequisiteID.Rebind(a),
+		Title:          t.Title.Rebind(a),
+		Summary:        t.Summary.Rebind(a),
+		Level:          t.Level.Rebind(a),
+		ListPriceCents: t.ListPriceCents.Rebind(a),
+		Published:      t.Published.Rebind(a),
 		Currency:       tsq.RebindNull(t.Currency, a),
 		Blurb:          tsq.RebindNull(t.Blurb, a),
-		Slug:           t.Slug.WithTable(a),
+		Slug:           t.Slug.Rebind(a),
 	}
 }
 

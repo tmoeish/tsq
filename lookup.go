@@ -241,7 +241,7 @@ func ownColumn[R any, K, T comparable](t *TableOf[R, K], col Column[R, T]) (Colu
 	}
 
 	if col.core().table != nil && col.core().table.TableName() != t.TableName() {
-		col = col.WithTable(t)
+		col = col.Rebind(t)
 	}
 
 	return col, nil

@@ -177,23 +177,23 @@ func ZeroLiteral(d Dialect, t ColumnType) (string, bool) {
 	postgres := d.Name() == Postgres
 
 	switch t.Kind {
-	case KindString:
+	case ColumnKindString:
 		return "''", true
-	case KindInt, KindFloat:
+	case ColumnKindInt, ColumnKindFloat:
 		return "0", true
-	case KindBool:
+	case ColumnKindBool:
 		if postgres {
 			return "FALSE", true
 		}
 
 		return "0", true
-	case KindBytes:
+	case ColumnKindBytes:
 		if postgres {
 			return "''", true
 		}
 
 		return "X''", true
-	case KindTime:
+	case ColumnKindTime:
 		// SQLite keeps a time as text, in the spelling the drivers write: with the
 		// zone. MySQL takes a zone in a literal only within the range of TIMESTAMP:
 		// year 1 with an offset is an error under an explicit session time zone and
@@ -303,31 +303,31 @@ func SQLiteRetype(before, after ColumnType) Retype {
 		return RetypeAsIs
 	}
 
-	numeric := before.Kind == KindInt || before.Kind == KindFloat || before.Kind == KindBool
+	numeric := before.Kind == ColumnKindInt || before.Kind == ColumnKindFloat || before.Kind == ColumnKindBool
 
 	switch after.Kind {
-	case KindInt:
+	case ColumnKindInt:
 		switch before.Kind {
-		case KindBool:
+		case ColumnKindBool:
 			return RetypeAsIs
-		case KindFloat:
+		case ColumnKindFloat:
 			return RetypeConvert
 		}
 
 		return RetypeMayFail
-	case KindFloat:
+	case ColumnKindFloat:
 		if numeric {
 			return RetypeAsIs
 		}
 
 		return RetypeMayFail
-	case KindBool:
+	case ColumnKindBool:
 		if numeric {
 			return RetypeConvert
 		}
 
 		return RetypeMayFail
-	case KindTime:
+	case ColumnKindTime:
 		return RetypeMayFail
 	default:
 		// Text and bytes hold anything.
@@ -345,9 +345,9 @@ func SQLiteRetypeSource(source string, after ColumnType) string {
 	}
 
 	switch after.Kind {
-	case KindInt:
+	case ColumnKindInt:
 		return fmt.Sprintf("CASE typeof(%s) WHEN 'real' THEN CAST(ROUND(%s) AS INTEGER) ELSE %s END", source, source, source)
-	case KindBool:
+	case ColumnKindBool:
 		return fmt.Sprintf("CASE WHEN typeof(%s) IN ('integer', 'real') THEN %s <> 0 ELSE %s END", source, source, source)
 	default:
 		return source
@@ -364,13 +364,13 @@ func SQLiteMisfit(column string, t ColumnType) (condition, kind string) {
 	}
 
 	switch t.Kind {
-	case KindInt:
+	case ColumnKindInt:
 		return fmt.Sprintf("typeof(%s) NOT IN ('integer', 'null')", column), "an integer"
-	case KindFloat:
+	case ColumnKindFloat:
 		return fmt.Sprintf("typeof(%s) NOT IN ('real', 'integer', 'null')", column), "a number"
-	case KindBool:
+	case ColumnKindBool:
 		return fmt.Sprintf("typeof(%s) <> 'null' AND (typeof(%s) <> 'integer' OR %s NOT IN (0, 1))", column, column, column), "a boolean"
-	case KindTime:
+	case ColumnKindTime:
 		return fmt.Sprintf("typeof(%s) <> 'null' AND (typeof(%s) <> 'text' OR %s NOT GLOB '[0-9][0-9][0-9][0-9]-[0-9][0-9]-[0-9][0-9]*')",
 			column, column, column), "a time"
 	default:

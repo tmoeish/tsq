@@ -63,14 +63,14 @@ var measures = func() measureTable {
 		PrimaryKey:    t.ID,
 		AutoIncrement: true,
 		ColumnSpecs: []tsqdialect.ColumnSpec{
-			{Name: "id", Type: tsqdialect.ColumnType{Kind: tsqdialect.KindInt, Bits: 64}, PrimaryKey: true, AutoIncrement: true},
-			{Name: "label", Type: tsqdialect.ColumnType{Kind: tsqdialect.KindString, Size: 20}},
-			{Name: "amount", Type: tsqdialect.ColumnType{Kind: tsqdialect.KindFloat, Bits: 64}},
-			{Name: "qty", Type: tsqdialect.ColumnType{Kind: tsqdialect.KindInt, Bits: 64}},
-			{Name: "at", Type: tsqdialect.ColumnType{Kind: tsqdialect.KindTime}},
-			{Name: "seen", Type: tsqdialect.ColumnType{Kind: tsqdialect.KindTime, Nullable: true}},
-			{Name: "is_on", Type: tsqdialect.ColumnType{Kind: tsqdialect.KindBool}},
-			{Name: "maybe", Type: tsqdialect.ColumnType{Kind: tsqdialect.KindBool, Nullable: true}},
+			{Name: "id", Type: tsqdialect.ColumnType{Kind: tsqdialect.ColumnKindInt, Bits: 64}, PrimaryKey: true, AutoIncrement: true},
+			{Name: "label", Type: tsqdialect.ColumnType{Kind: tsqdialect.ColumnKindString, Size: 20}},
+			{Name: "amount", Type: tsqdialect.ColumnType{Kind: tsqdialect.ColumnKindFloat, Bits: 64}},
+			{Name: "qty", Type: tsqdialect.ColumnType{Kind: tsqdialect.ColumnKindInt, Bits: 64}},
+			{Name: "at", Type: tsqdialect.ColumnType{Kind: tsqdialect.ColumnKindTime}},
+			{Name: "seen", Type: tsqdialect.ColumnType{Kind: tsqdialect.ColumnKindTime, Nullable: true}},
+			{Name: "is_on", Type: tsqdialect.ColumnType{Kind: tsqdialect.ColumnKindBool}},
+			{Name: "maybe", Type: tsqdialect.ColumnType{Kind: tsqdialect.ColumnKindBool, Nullable: true}},
 		},
 	})
 
@@ -288,7 +288,7 @@ func TestIntegrationASplitListInKeepsTheRowsAJoinRepeats(t *testing.T) {
 			// Every measure joins to the three that share its quantity's parity or
 			// not; what matters is that a row comes back more than once.
 			q := tsq.Select(measures.Columns()...).From(measures).
-				InnerJoin(other, measures.Qty.WithTable(other).EQ(measures.Qty)).
+				InnerJoin(other, measures.Qty.Rebind(other).EQ(measures.Qty)).
 				Where(measures.Label.In(labels)).MustBuild()
 
 			short := []string{"m0", "m1"}
@@ -646,8 +646,8 @@ func zonedTable(raw string) *tsq.TableOf[zoned, int64] {
 		PrimaryKey:    id,
 		AutoIncrement: true,
 		ColumnSpecs: []tsqdialect.ColumnSpec{
-			{Name: "id", Type: tsqdialect.ColumnType{Kind: tsqdialect.KindInt, Bits: 64}, PrimaryKey: true, AutoIncrement: true},
-			{Name: "at", Type: tsqdialect.ColumnType{Kind: tsqdialect.KindTime, RawType: raw}},
+			{Name: "id", Type: tsqdialect.ColumnType{Kind: tsqdialect.ColumnKindInt, Bits: 64}, PrimaryKey: true, AutoIncrement: true},
+			{Name: "at", Type: tsqdialect.ColumnType{Kind: tsqdialect.ColumnKindTime, RawType: raw}},
 		},
 	})
 }

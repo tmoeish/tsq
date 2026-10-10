@@ -43,7 +43,7 @@ func TestArgumentsAreMatchedByParameter(t *testing.T) {
 }
 
 func TestColumnParametersSurviveRebinding(t *testing.T) {
-	alias := User_ID.WithTable(Users.As("u2"))
+	alias := User_ID.Rebind(Users.As("u2"))
 	q := Select(User_ID).From(Users).
 		InnerJoin(Users.As("u2"), alias.EQ(User_ID)).
 		Where(alias.EQ(alias.Param())).
@@ -220,8 +220,8 @@ func TestDefineReportsInvalidTables(t *testing.T) {
 			return h.Define(TableSpec[row, int64]{
 				Columns: []BoundColumn[row]{id, other}, PrimaryKey: id, AutoIncrement: true,
 				ColumnSpecs: []tsqdialect.ColumnSpec{
-					{Name: "id", Type: tsqdialect.ColumnType{Kind: tsqdialect.KindInt, Bits: 64}, PrimaryKey: true},
-					{Name: "other", Type: tsqdialect.ColumnType{Kind: tsqdialect.KindInt, Bits: 64}},
+					{Name: "id", Type: tsqdialect.ColumnType{Kind: tsqdialect.ColumnKindInt, Bits: 64}, PrimaryKey: true},
+					{Name: "other", Type: tsqdialect.ColumnType{Kind: tsqdialect.ColumnKindInt, Bits: 64}},
 				},
 			}).Err()
 		},
@@ -235,7 +235,7 @@ func TestDefineReportsInvalidTables(t *testing.T) {
 			return h.Define(TableSpec[row, int64]{
 				Columns: []BoundColumn[row]{id, other}, PrimaryKey: id,
 				ColumnSpecs: []tsqdialect.ColumnSpec{
-					{Name: "id", Type: tsqdialect.ColumnType{Kind: tsqdialect.KindInt, Bits: 64}, PrimaryKey: true},
+					{Name: "id", Type: tsqdialect.ColumnType{Kind: tsqdialect.ColumnKindInt, Bits: 64}, PrimaryKey: true},
 				},
 			}).Err()
 		},
@@ -281,14 +281,14 @@ func TestDefineReportsInvalidTables(t *testing.T) {
 }
 
 func TestRebindRequiresTheColumnOnTheTarget(t *testing.T) {
-	q := Select(User_ID).From(Users).InnerJoin(Orders, Order_UserID.EQ(User_ID)).Where(Order_Note.WithTable(Users).IsNull())
+	q := Select(User_ID).From(Users).InnerJoin(Orders, Order_UserID.EQ(User_ID)).Where(Order_Note.Rebind(Users).IsNull())
 	if _, err := q.Build(); err == nil || !strings.Contains(err.Error(), "does not exist on users") {
 		t.Fatalf("Build() error = %v", err)
 	}
 
-	// A derived expression has no WithTable to call; rebind the column first.
-	rebound := Select(User_ID).From(Users).InnerJoin(Users.As("u"), User_ID.EQ(User_ID.WithTable(Users.As("u")))).
-		Where(Upper(User_Name.WithTable(Users.As("u"))).IsNull())
+	// A derived expression has no Rebind to call; rebind the column first.
+	rebound := Select(User_ID).From(Users).InnerJoin(Users.As("u"), User_ID.EQ(User_ID.Rebind(Users.As("u")))).
+		Where(Upper(User_Name.Rebind(Users.As("u"))).IsNull())
 	if _, err := rebound.Build(); err != nil {
 		t.Fatalf("Build() error = %v", err)
 	}
@@ -369,7 +369,7 @@ func TestBuiltQueriesComposeLikeStages(t *testing.T) {
 	}
 
 	cte := CTE("picked", first)
-	picked, err := Select(User_ID.WithTable(cte)).From(cte).MustBuild().List(ctx, rt)
+	picked, err := Select(User_ID.Rebind(cte)).From(cte).MustBuild().List(ctx, rt)
 	if err != nil || len(picked) != 1 {
 		t.Fatalf("cte over a built query = %d rows, %v", len(picked), err)
 	}
@@ -416,7 +416,7 @@ func TestBuildRefusesWhatEveryDialectRefuses(t *testing.T) {
 		"nested aggregates":         {Select(MapInto(Sum(Max(User_Version)), func(r *user) *int64 { return &r.Version })).From(Users), "cannot aggregate an aggregate"},
 		"DISTINCT ordered by other": {SelectDistinct(User_Name).From(Users).OrderBy(User_ID.Asc()), "which it does not select"},
 		"lock over an outer join":   {Select(User_ID).From(Users).LeftJoin(Orders, Order_UserID.EQ(User_ID)).ForUpdate(), "row lock cannot cover the LEFT JOIN"},
-		"correlated second operand": {Select(User_ID).From(Users).Where(Exists(Select(Order_ID).From(Orders).Union(Select(Order_ID).From(Orders.As("o2")).Correlate(Notes).Where(Order_ID.WithTable(Orders.As("o2")).EQ(Note_ID))))), "Correlate"},
+		"correlated second operand": {Select(User_ID).From(Users).Where(Exists(Select(Order_ID).From(Orders).Union(Select(Order_ID).From(Orders.As("o2")).Correlate(Notes).Where(Order_ID.Rebind(Orders.As("o2")).EQ(Note_ID))))), "Correlate"},
 	} {
 		if _, err := tc.stage.Build(); err == nil || !strings.Contains(err.Error(), tc.want) {
 			t.Errorf("%s: Build = %v; want %q", name, err, tc.want)

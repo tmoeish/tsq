@@ -43,9 +43,9 @@ func (e *RowStateError) Error() string {
 type RowState uint8
 
 const (
-	// RowExists is a row still in the table: a hard delete, or an Update on a
+	// RowExisting is a row still in the table: a hard delete, or an Update on a
 	// table without deleted_at.
-	RowExists RowState = iota + 1
+	RowExisting RowState = iota + 1
 	// RowLive is a row not soft-deleted: an Update or Delete on a soft-delete table.
 	RowLive
 	// RowDeleted is a soft-deleted row: a Restore.
@@ -54,7 +54,7 @@ const (
 
 func (s RowState) String() string {
 	switch s {
-	case RowExists:
+	case RowExisting:
 		return "existing"
 	case RowLive:
 		return "live"

@@ -54,7 +54,7 @@ func newOrderItemTable() OrderItemTable {
 			{
 				Name: "id",
 				Type: tsqdialect.ColumnType{
-					Kind: tsqdialect.KindInt,
+					Kind: tsqdialect.ColumnKindInt,
 					Bits: 64,
 				},
 				PrimaryKey:    true,
@@ -63,7 +63,7 @@ func newOrderItemTable() OrderItemTable {
 			{
 				Name: "line_total_cents",
 				Type: tsqdialect.ColumnType{
-					Kind: tsqdialect.KindInt,
+					Kind: tsqdialect.ColumnKindInt,
 					Bits: 64,
 				},
 				Fill:      tsqdialect.FillGenerated,
@@ -72,28 +72,28 @@ func newOrderItemTable() OrderItemTable {
 			{
 				Name: "order_id",
 				Type: tsqdialect.ColumnType{
-					Kind: tsqdialect.KindInt,
+					Kind: tsqdialect.ColumnKindInt,
 					Bits: 64,
 				},
 			},
 			{
 				Name: "product_id",
 				Type: tsqdialect.ColumnType{
-					Kind: tsqdialect.KindInt,
+					Kind: tsqdialect.ColumnKindInt,
 					Bits: 64,
 				},
 			},
 			{
 				Name: "quantity",
 				Type: tsqdialect.ColumnType{
-					Kind: tsqdialect.KindInt,
+					Kind: tsqdialect.ColumnKindInt,
 					Bits: 64,
 				},
 			},
 			{
 				Name: "unit_price_cents",
 				Type: tsqdialect.ColumnType{
-					Kind: tsqdialect.KindInt,
+					Kind: tsqdialect.ColumnKindInt,
 					Bits: 64,
 				},
 			},
@@ -114,12 +114,12 @@ func (t OrderItemTable) As(alias string) OrderItemTable {
 
 	return OrderItemTable{
 		TableOf:        a,
-		ID:             t.ID.WithTable(a),
-		OrderID:        t.OrderID.WithTable(a),
-		ProductID:      t.ProductID.WithTable(a),
-		Quantity:       t.Quantity.WithTable(a),
-		UnitPriceCents: t.UnitPriceCents.WithTable(a),
-		LineTotalCents: t.LineTotalCents.WithTable(a),
+		ID:             t.ID.Rebind(a),
+		OrderID:        t.OrderID.Rebind(a),
+		ProductID:      t.ProductID.Rebind(a),
+		Quantity:       t.Quantity.Rebind(a),
+		UnitPriceCents: t.UnitPriceCents.Rebind(a),
+		LineTotalCents: t.LineTotalCents.Rebind(a),
 	}
 }
 

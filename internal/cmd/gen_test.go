@@ -1402,7 +1402,7 @@ func TestValidateDatabaseFilledFieldsRefusesManagedColumns(t *testing.T) {
 func TestGeneratedColumnRendersTheSameOnEveryDialect(t *testing.T) {
 	column := tsqdialect.ColumnSpec{
 		Name:      "slug",
-		Type:      tsqdialect.ColumnType{Kind: tsqdialect.KindString, Size: 160},
+		Type:      tsqdialect.ColumnType{Kind: tsqdialect.ColumnKindString, Size: 160},
 		Fill:      tsqdialect.FillGenerated,
 		Generated: "LOWER(title)",
 	}

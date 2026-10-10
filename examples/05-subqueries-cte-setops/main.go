@@ -113,9 +113,9 @@ func run(ctx context.Context, w io.Writer) error {
 		Where(order.Status.NE(tsq.Val(shop.OrderCancelled))).
 		GroupBy(order.CustomerID))
 
-	// col.WithTable(cte) 把列重新绑定到 CTE 上：按名字找 CTE 的输出列。
-	spendCustomer := order.CustomerID.WithTable(spend)
-	spendTotal := order.TotalCents.WithTable(spend)
+	// col.Rebind(cte) 把列重新绑定到 CTE 上：按名字找 CTE 的输出列。
+	spendCustomer := order.CustomerID.Rebind(spend)
+	spendTotal := order.TotalCents.Rebind(spend)
 
 	spenders, err := tsq.
 		Select(

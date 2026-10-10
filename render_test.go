@@ -144,7 +144,7 @@ func TestIdentifiersAreValidatedForTheDialect(t *testing.T) {
 func TestSetOperationsCTEAndSubqueries(t *testing.T) {
 	big := Select(Order_UserID).From(Orders).Where(Order_Amount.GT(Val(int64(100))))
 	cte := CTE("big_orders", big)
-	bigUser := Order_UserID.WithTable(cte)
+	bigUser := Order_UserID.Rebind(cte)
 
 	q := Select(User_ID).From(Users.WithDeleted()).
 		InnerJoin(cte, bigUser.EQ(User_ID)).
@@ -181,7 +181,7 @@ func TestOneCTEPerName(t *testing.T) {
 
 	a := named("a")
 
-	shared := Select(User_ID.WithTable(a)).From(a).Union(Select(User_ID.WithTable(a)).From(a)).MustBuild()
+	shared := Select(User_ID.Rebind(a)).From(a).Union(Select(User_ID.Rebind(a)).From(a)).MustBuild()
 
 	sql, args := sqlOf(t, shared, onSQLite)
 	if strings.Count(sql, `"t" AS (`) != 1 || !reflect.DeepEqual(args, []any{"a"}) {
@@ -190,7 +190,7 @@ func TestOneCTEPerName(t *testing.T) {
 
 	b := named("b")
 
-	_, err := Select(User_ID.WithTable(a)).From(a).Union(Select(User_ID.WithTable(b)).From(b)).Build()
+	_, err := Select(User_ID.Rebind(a)).From(a).Union(Select(User_ID.Rebind(b)).From(b)).Build()
 	if err == nil || !strings.Contains(err.Error(), "two different CTEs are named t") {
 		t.Fatalf("Build = %v; want the name collision refused", err)
 	}
