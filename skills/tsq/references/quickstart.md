@@ -1,6 +1,7 @@
 # TSQ Quickstart
 
-This file is the **shortest practical path** for adding TSQ to a Go project.
+The shortest path from a Go module without TSQ to a first typed query on SQLite. Each step names the
+reference file that covers it in full.
 
 ## Outcome
 
@@ -29,7 +30,8 @@ Typical package names:
 - `internal/database`
 - `internal/persistence`
 
-Use the package that already owns table-shaped structs if one exists.
+Use the package that already owns table-shaped structs if one exists. The generated files go into
+the same package.
 
 ## 3. Add a table model
 
@@ -49,7 +51,9 @@ Minimum requirements:
 
 - a normal Go struct
 - a `//tsq:table` directive above it
-- `db` tags on persisted fields
+- `db` tags on persisted fields; a field with neither a `db` nor a `tsq` tag is not a column
+
+Every directive and tag option is in `annotations.md`.
 
 If a field uses a custom Go type that TSQ cannot map directly to a SQL column type, keep the runtime codec on the Go type and add an explicit DDL override in the `db` tag:
 
@@ -83,7 +87,9 @@ database/
 The `.sql` files are the schema for each dialect, with one migration section per later change, and
 `tsq.json` is the history they are rendered from: commit all four.
 
-Generated files are outputs. Change the source struct or annotation, then regenerate.
+Generated files are outputs. Change the source struct or annotation, then regenerate. Flags, exit
+codes and the migration sections of the `.sql` files are in `cli.md`; what the Go files declare is in
+`generated-code.md`.
 
 ## 5. Initialize TSQ runtime
 
@@ -107,7 +113,8 @@ defer runtime.Close()
 ping and any bootstrap DDL. When the project already opens its own pool, for instance to wrap it with
 instrumentation, use `tsq.NewRuntime(ctx, db, dialect.SQLite, tables, options...)` instead and keep
 that pool: TSQ will not close a pool it did not open. If the project manages schema by migrations,
-pass no policy and keep the default manual mode.
+pass no policy and keep the default manual mode. Policies, DSN requirements and options are in
+`runtime.md`.
 
 ## 6. Run a first query
 
@@ -175,7 +182,7 @@ if err := runtime.WithTx(ctx, func(ctx context.Context, txExec tsq.Executor) err
 
 ### `tsq gen` cannot find the package
 
-- make sure the command runs from the module root
+- make sure the command runs from the module root (or pass the import path)
 - make sure the package contains at least one `.go` file
 - make sure `go.mod` exists
 
@@ -189,6 +196,9 @@ files were not refreshed. Regenerate first.
 
 That usually means the query is structurally valid but not executable on the current dialect. Capability checks for things like CTEs, row locks, or `FULL JOIN` happen at execution time.
 
-## Next file
+## Next files
 
-Read `REFERENCE.md` for the full TSQ DSL and feature surface.
+- `queries.md` for the builder and every read method
+- `expressions.md` for predicates, values, parameters and functions
+- `writes.md` for inserts, updates, upserts, deletes and batch writes
+- `errors.md` when something fails

@@ -5,8 +5,9 @@
 ## 改了根包里任何导出的符号
 
 - `make api-snapshot` 刷新 `references/api-surface.txt`。`[门禁: api-check]`
-- 更新 `skills/tsq/`——使用者照着那份技能写代码，新增的 API 要出现在里面，删掉或改签名的
-  要从里面消失。`[门禁: api-check 会提示]`
+- 更新 `skills/tsq/`——使用者照着那份技能写代码，新增的 API 要出现在 `references/` 里它所属主题的那一份
+  （`SKILL.md` 的路由表说哪份管什么），删掉或改签名的要从里面消失。
+  `[门禁: doc-check 的 check_skill_coverage 要求每个导出符号出现；api-check 会提示]`
 - 更新 `README.md` 和 `docs/` 里出现该符号的地方。
 - 在 `CHANGELOG.md` 的 `## [未发布]` 段写一条人话。破坏性变更单独放 `### 破坏性变更`——
   `script/release.py` 靠这个小节名判断要不要跨主版本。

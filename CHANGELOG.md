@@ -453,6 +453,7 @@ v5 是一个重新设计过的版本，不提供对 v4 的兼容层：没有别�
 
 ### 其他
 
+- **使用者技能按主题拆开并覆盖全部对外表面**：`skills/tsq` 原来是一份 1700 行的 `REFERENCE.md`（加 `CONCEPTS.md` / `QUICKSTART.md`），agent 一加载就全读，而且有 93 个导出符号从没出现过（`IsDuplicateKeyError`、`RetryPolicy`、`Tracer`、`NewListParam`、`UnionAll`……）。现在 `SKILL.md` 是一张路由表加最容易写错的规则，参考拆成十五份按需读取：`quickstart`、`concepts`、`cli`、`annotations`、`generated-code`、`runtime`、`queries`、`expressions`、`advanced-queries`、`paging-search`、`writes`、`transactions`、`dialects`、`errors`、`migrating-from-v4`。新增的内容有 CLI 全部 flag 与退出码、用 `go get -tool` 让 CLI 跟着 `go.mod` 的版本、哪些字段算列与 `json` 名、结果结构体的规则、列与表的类型层级、手写表、全部谓词、`CASE`、阶段类型表、`TraceOp` 对照表、能力矩阵、错误处理表和 v4 → v5 对照表。`make doc-check` 新增一道门，要求每个导出符号、CLI flag、指令、托管角色和 `db` tag 选项都在技能里出现。`docs/skill.md` 改为中文并列出新结构；README 去掉"v5 尚未发布"的提示，安装一节补上库与 CLI 版本对齐的做法。
 - **文档对齐实际行为**（第四轮审计）：`skills/tsq` 不再让人用不存在的 `ScalarNull`；README 不再说 `*sql.DB` 可以直接当执行器、不再提不存在的 `PageRequest.Validate` 和"自定义方言合约"；`docs/skill.md` 复述规则（含 `tsq gen` 会拒绝的旧注解写法）的一节换成指向 REFERENCE 的链接；REFERENCE 写明 `Search` 要 `tsq.Searchable` 包住列、可空时间墓碑配唯一索引会被拒绝、`.sql` 和 `tsq.json` 总会生成、`Upsert` 的冲突参数；`BEST_PRACTICES.md` 去掉"生成 helper 初始化静态查询"的过时说法；示例里几处不准的说明和打印改正。
 
 - **示例整个重写**：`examples/` 现在是 11 章由浅入深的教程（从结构体和 `tsq gen` 到方言与追踪），每章一个可运行的程序，打印每一步、TSQ 实际发出的 SQL 和结果，并带一个断言输出的测试；第 2 到 11 章共用一个网店模型 `examples/shop`。原来的 `examples/academy` 挪到 `internal/integration/academy`，只作集成测试的夹具；`quickstart` / `advanced` / `full-suite` 三个程序删除。

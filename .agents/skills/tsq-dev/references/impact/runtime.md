@@ -19,7 +19,7 @@
   `[门禁: runtime_test.go 的 NewRuntime/NewRuntimeCloses 两组]`
 - **新选项写成 `With*` 函数**，值只存进 `runtimeConfig`，校验统一放在 `newRuntimeConfig` 末尾——
   非法值只从构造器报一次。
-- 选项加进 `skills/tsq` 的 Runtime 小节；它是使用者唯一能看到这份清单的地方。
+- 选项加进 `skills/tsq/references/runtime.md` 的选项表；它是使用者唯一能看到这份清单的地方。`[门禁: doc-check 的 check_skill_coverage]`
 
 ## 改了 schema 托管（`runtime_schema.go`、`runtime_index.go`）
 
@@ -130,7 +130,7 @@
   `capabilityHint` 里"去哪个方言跑"的提示要跟着改。
 - `internal/integration` 的 `TestIntegrationCapabilitiesExecute` 对每个方言声明支持的
   能力真跑一遍——声明了但跑不通，CI 的 `Integration` job 会红。
-- 更新 `skills/tsq` 里"哪条查询能在哪个库上跑"的说明和 `README.md` 的能力矩阵。
+- 更新 `skills/tsq/references/dialects.md` 的能力矩阵和 `README.md` 的能力矩阵。
   `[门禁: skill-check dialect]`
 - 能力位按版本基线表态（见 `../architecture.md` § 方言），改基线要进 CHANGELOG 的 `### 变更`。
 

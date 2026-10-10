@@ -2,7 +2,7 @@
 
 从空目录到第一条能跑的查询，完整步骤写在随发布分发的使用者技能里：
 
-**[`skills/tsq/references/QUICKSTART.md`](../skills/tsq/references/QUICKSTART.md)**
+**[`skills/tsq/references/quickstart.md`](../skills/tsq/references/quickstart.md)**
 
 那份文件是这个主题的**唯一实质来源**。它按顺序走完：
 

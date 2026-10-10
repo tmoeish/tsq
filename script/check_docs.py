@@ -57,6 +57,21 @@ RETIRED: Final = (
     (re.compile(r"\.WithTable\("), "列换表是 `col.Rebind(source)`，可空列是 `tsq.RebindNull`"),
 )
 RETIRED_GO_DIRS: Final = (Path("cmd"), Path("internal/cmd"), Path("internal/parser"))
+# 迁移指南是唯一必须写出 v4 旧词的使用者文档：它的工作就是把旧写法逐条对到新写法上。
+RETIRED_EXEMPT: Final = frozenset({"skills/tsq/references/migrating-from-v4.md"})
+V4_COLUMN: Final = re.compile(r"^\|[^|\n]*\|", re.MULTILINE)
+
+# `skills/tsq` 承诺"装了这份技能的 agent 不必再查源码或仓库文档就能正确使用 TSQ"。这个承诺
+# 只有在它覆盖了全部对外表面时才成立，而"新加了一个导出符号、CLI flag、指令或 db tag 选项却
+# 没写进技能"在 diff 里看不出来——2026-10-10 重写技能时，旧的单文件参考里有 93 个导出符号
+# 一次都没出现（`IsDuplicateKeyError`、`RetryPolicy`、`Tracer`、`NewListParam`、`UnionAll`……）。
+# 所以这里把四类表面的全集各自从权威来源读出来，逐个要求它在技能里出现。
+SHIPPED_SKILL: Final = Path("skills/tsq")
+API_NAME: Final = re.compile(r"^(?:func|type)\s+(?:\([^)]*\)\s+)?([A-Z]\w*)|^\t([A-Z]\w*)\b|^\s+([A-Z]\w*)\s+(?:[A-Z]\w*\s+)?=", re.MULTILINE)
+CLI_FLAG: Final = re.compile(r'fs\.(?:Bool|String|Int|Duration)Var\(&\w+,\s*"([\w-]+)"')
+DIRECTIVE_NAME: Final = re.compile(r'(?:d\.name == |case )"([a-z]+)"(?:, "([a-z]+)")?(?:, "([a-z]+)")?')
+MANAGED_ROLE: Final = re.compile(r'^\t"([a-z_]+)":\s+\{"', re.MULTILINE)
+DB_TAG_OPTION: Final = re.compile(r'key == "([a-z]+)"')
 TSQ_SYMBOL: Final = re.compile(r"\btsq\.([A-Z][A-Za-z0-9_]*)")
 API_TOP_LEVEL: Final = re.compile(
     r"^(?:func|type|var|const)\s+([A-Z][A-Za-z0-9_]*)|^\t([A-Z][A-Za-z0-9_]*)\b", re.MULTILINE
@@ -158,6 +173,10 @@ def check_api_references() -> list[str]:
     missing: dict[str, set[str]] = {}
     for path in documents:
         text = (PROJECT_ROOT / path).read_text(encoding="utf-8", errors="replace")
+        if path.as_posix() in RETIRED_EXEMPT:
+            # 迁移指南表格的第一列是 v4 的写法，本来就不在快照里；其余部分照常对照。
+            text = V4_COLUMN.sub("|", text)
+
         for name in TSQ_SYMBOL.findall(text):
             if name not in symbols:
                 missing.setdefault(name, set()).add(path.as_posix())
@@ -190,6 +209,9 @@ def check_retired_vocabulary() -> list[str]:
 
     found: list[str] = []
     for path in sources:
+        if path.as_posix() in RETIRED_EXEMPT:
+            continue
+
         text = (PROJECT_ROOT / path).read_text(encoding="utf-8", errors="replace")
         for pattern, fix in RETIRED:
             for match in pattern.finditer(text):
@@ -265,6 +287,55 @@ def check_shipped_skill_language() -> list[str]:
     return lines
 
 
+def source_text(*paths: str) -> str:
+    return "\n".join((PROJECT_ROOT / p).read_text(encoding="utf-8") for p in paths)
+
+
+def check_skill_coverage() -> list[str]:
+    skill = "\n".join(
+        (PROJECT_ROOT / path).read_text(encoding="utf-8", errors="replace")
+        for path in git_paths(["ls-files", "-z", "--cached", "--others", "--exclude-standard", "*.md"])
+        if path.suffix == ".md" and under(path, SHIPPED_SKILL)
+    )
+
+    surface: dict[str, set[str]] = {}
+
+    api = (PROJECT_ROOT / API_SURFACE).read_text(encoding="utf-8")
+    surface["导出符号"] = {next(g for g in m if g) for m in API_NAME.findall(api)}
+
+    cmd = source_text(*(p.as_posix() for p in git_paths(["ls-files", "-z", "internal/cmd/*.go"]) if not p.name.endswith("_test.go")))
+    surface["CLI flag"] = {f"-{name}" if len(name) == 1 else f"--{name}" for name in CLI_FLAG.findall(cmd)}
+
+    directive = source_text("internal/parser/directive.go")
+    names = {n for groups in DIRECTIVE_NAME.findall(directive) for n in groups if n}
+    surface["注解指令"] = {f"//tsq:{n}" for n in names}
+    surface["托管角色"] = set(MANAGED_ROLE.findall(directive))
+
+    ddl = source_text("internal/cmd/ddl_render.go")
+    surface["db tag 选项"] = {f"{n}:" for n in DB_TAG_OPTION.findall(ddl)}
+
+    missing: list[str] = []
+    for kind, items in surface.items():
+        if not items:
+            raise DocsError(f"技能覆盖检查读不到任何{kind}：提取它的正则跟不上源码了，先修这里")
+
+        for item in sorted(items):
+            if not re.search(r"(?<![\w-])" + re.escape(item) + r"(?![\w])", skill):
+                missing.append(f"  - {kind}：`{item}`")
+
+    if not missing:
+        total = sum(len(items) for items in surface.values())
+        print(f"文档检查通过：随发布分发的技能覆盖了全部 {total} 项对外表面（导出符号、CLI flag、指令、托管角色、db tag 选项）。")
+
+        return []
+
+    return [
+        "随发布分发的技能（skills/tsq）没有覆盖这些对外表面——装了这份技能的 agent 会不知道它们存在：",
+        *missing,
+        "写进 skills/tsq/references/ 里对应主题的那一份（SKILL.md 的路由表说哪份管什么）。",
+    ]
+
+
 def main() -> int:
     failures: list[str] = []
     for check in (
@@ -273,6 +344,7 @@ def main() -> int:
         check_retired_vocabulary,
         check_go_source_language,
         check_shipped_skill_language,
+        check_skill_coverage,
     ):
         failures.extend(check())
 
