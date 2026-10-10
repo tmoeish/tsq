@@ -7,7 +7,7 @@
 格式基于 [Keep a Changelog](https://keepachangelog.com/zh-CN/1.0.0/)，
 项目遵循 [语义化版本控制](https://semver.org/lang/zh-CN/)。
 
-## [未发布]
+## [5.0.0] - 2026-10-10
 
 v5 是一个重新设计过的版本，不提供对 v4 的兼容层：没有别名、没有迁移命令、没有旧注解语法的读取器。
 模块路径是 `github.com/tmoeish/tsq/v5`，CLI 用 `go install github.com/tmoeish/tsq/v5/cmd/tsq@latest` 安装。
