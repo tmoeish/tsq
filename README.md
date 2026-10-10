@@ -14,10 +14,10 @@
 [![Go Report Card][4]][5]
 [![License: MIT][6]][7]
 
-> [!IMPORTANT]
-> **v5 正在开发中，尚未发布。** 默认分支 `main` 上的 README、`docs/` 和 `skills/tsq` 描述的是还不能
-> `go get` 到的 v5（模块 `github.com/tmoeish/tsq/v5`）。当前可用的最新版本是 v4，它的用法以
-> [`v4` 分支](https://github.com/tmoeish/tsq/tree/v4)上的文档为准。
+> [!NOTE]
+> 这是 v5（模块 `github.com/tmoeish/tsq/v5`）的文档。v5 是一次重新设计，不兼容 v4；从 v4 升级见
+> [`skills/tsq/references/migrating-from-v4.md`](skills/tsq/references/migrating-from-v4.md)。
+> 仍在用 v4 的项目以 [`v4` 分支](https://github.com/tmoeish/tsq/tree/v4)上的文档为准。
 
 [1]: https://img.shields.io/github/v/release/tmoeish/tsq
 [2]: https://github.com/tmoeish/tsq/releases
@@ -46,8 +46,14 @@ TSQ（Type-Safe Query）把带 `//tsq:` 指令的 Go 结构体生成为**表元�
 ## 安装
 
 ```bash
-go install github.com/tmoeish/tsq/v5/cmd/tsq@latest
+go get github.com/tmoeish/tsq/v5@latest                  # 库
+go install github.com/tmoeish/tsq/v5/cmd/tsq@latest      # 生成器 CLI
 ```
+
+库和 CLI 是同一个 module、同一个版本号，**CLI 要和 `go.mod` 里的版本一致**：生成文件头和 `tsq.json`
+都记着生成器版本，版本不一致会让每次重新生成都改一遍所有文件。最省心的做法是把 CLI 作为 tool 记进
+`go.mod`：`go get -tool github.com/tmoeish/tsq/v5/cmd/tsq`，之后用 `go tool tsq gen ./database`。
+细节见 [`skills/tsq/references/cli.md`](skills/tsq/references/cli.md)。
 
 TSQ 本身不附带数据库 driver；你的应用只需要安装自己实际使用的那个 driver。下面的 quickstart 默认用 `modernc.org/sqlite`，是因为它不依赖 CGO，最适合零配置上手。
 
@@ -64,8 +70,11 @@ make build
 这个仓库同时发布了一个可安装的 agent skill，适合 GitHub Copilot、Claude Code、Gemini CLI 等 coding agent 在**别的 Go 项目里**学习如何接入和使用 TSQ。
 
 ```bash
-gh skill install tmoeish/tsq tsq --agent github-copilot --scope user
+gh skill install tmoeish/tsq skills/tsq --dir .agents/skills   # 在使用 TSQ 的项目根目录运行
 ```
+
+技能的入口 `SKILL.md` 是一张路由表，参考按主题拆成十五份（CLI、注解、生成代码、运行时、查询、
+表达式、写入、事务、分页与搜索、方言、错误、v4 迁移……），agent 只读任务需要的那一两份。
 
 安装方式、手动复制路径和使用示例见 [`docs/skill.md`](docs/skill.md)。
 
@@ -112,7 +121,7 @@ DDL 的默认字符串映射现在更偏向“常规业务字段”：
 - `string`、`sql.NullString`、`null.String` 以及它们的 type alias / 自定义字符串类型，在**没写 `size`** 时默认生成 `VARCHAR(255)`
 - 写了 `size:N` 之后，会按方言选更合适的类型；例如 MySQL 超过 `VARCHAR` 安全范围时会自动切到 `MEDIUMTEXT` / `LONGTEXT`
 - 如果字段本身是 TSQ 不认识的自定义类型（例如实现了 `driver.Valuer` / `sql.Scanner` 的 JSON slice），可以直接在 `db` tag 里写 `type:JSON`、`type:TEXT`、`type:JSONB` 这类覆盖；TSQ 会原样写入三个方言的 DDL，并把这个 raw type 记录进 runtime/schema snapshot
-- `int` / `uint` 以及基于它们的 enum / type alias 默认按常规整型宽度生成（MySQL `INT`，Postgres `INTEGER`）；只有显式 `int64` / `uint64` 才会落到 `BIGINT`（PostgreSQL 没有无符号类型，`uint32` 也是 `BIGINT`、`uint64` 是 `NUMERIC(20)`；PostgreSQL 和 SQLite 上列的类型比字段宽时，TSQ 给列加一条 `CHECK` 约束守住字段的范围，见 `skills/tsq/references/REFERENCE.md`）
+- `int` / `uint` 以及基于它们的 enum / type alias 默认按常规整型宽度生成（MySQL `INT`，Postgres `INTEGER`）；只有显式 `int64` / `uint64` 才会落到 `BIGINT`（PostgreSQL 没有无符号类型，`uint32` 也是 `BIGINT`、`uint64` 是 `NUMERIC(20)`；PostgreSQL 和 SQLite 上列的类型比字段宽时，TSQ 给列加一条 `CHECK` 约束守住字段的范围，见 `skills/tsq/references/annotations.md`）
 
 ### 3. 跑第一条查询
 
@@ -190,16 +199,16 @@ func main() {
 
 | 文档 | 适合什么时候看 |
 | --- | --- |
-| [`skills/tsq/references/QUICKSTART.md`](skills/tsq/references/QUICKSTART.md) | 从空目录开始，跑通第一条 SQLite 查询（`docs/quickstart.md` 是它的索引页） |
-| [`skills/tsq/references/CONCEPTS.md`](skills/tsq/references/CONCEPTS.md) | 想建立 Table 注解、生成文件、查询构建链路、Result、Runtime 的心智模型（`docs/concepts.md` 是它的索引页） |
-| [`skills/tsq/references/REFERENCE.md`](skills/tsq/references/REFERENCE.md) | 完整的注解 DSL、查询 API、运行时与方言契约 |
+| [`skills/tsq/references/quickstart.md`](skills/tsq/references/quickstart.md) | 从空目录开始，跑通第一条 SQLite 查询（`docs/quickstart.md` 是它的索引页） |
+| [`skills/tsq/references/concepts.md`](skills/tsq/references/concepts.md) | 想建立 Table 注解、生成文件、查询构建链路、Result、Runtime 的心智模型（`docs/concepts.md` 是它的索引页） |
+| [`skills/tsq/SKILL.md`](skills/tsq/SKILL.md) | 完整参考的入口：按主题路由到 CLI、注解、生成代码、运行时、查询、表达式、写入、事务、分页与搜索、方言、错误、v4 迁移各一份 |
 | [`docs/skill.md`](docs/skill.md) | 想把 TSQ 作为一个 agent skill 安装到 Copilot / Claude Code / Gemini CLI |
 | [`examples/README.md`](examples/README.md) | 想跟着 11 章可运行的示例由浅入深地学，每章打印它执行的 SQL |
 | [`BEST_PRACTICES.md`](BEST_PRACTICES.md) | 想看输入校验、分页、事务、排序和生产环境建议 |
 
 ## 能力矩阵（内置 Dialect）
 
-TSQ 当前内置的 `Dialect` 实现只有 **SQLite / MySQL / PostgreSQL**。下面的矩阵描述的是这三者在仓库当前实现下的行为，不再用“完整支持”这种泛化说法。
+TSQ 只支持 **SQLite / MySQL / PostgreSQL** 三个方言。下面的矩阵描述的是这三者在仓库当前实现下的行为，不再用“完整支持”这种泛化说法。
 
 | 能力 | SQLite | MySQL | PostgreSQL | 说明 |
 | --- | --- | --- | --- | --- |
@@ -222,7 +231,7 @@ TSQ 当前内置的 `Dialect` 实现只有 **SQLite / MySQL / PostgreSQL**。下
 
 ## 常见边界和注意事项
 
-每一条的完整说明都在 [`skills/tsq/references/REFERENCE.md`](skills/tsq/references/REFERENCE.md)，这里只列最容易踩的：
+每一条的完整说明都在 [`skills/tsq/references/`](skills/tsq/references/) 里对应主题的那一份（[`SKILL.md`](skills/tsq/SKILL.md) 的路由表说哪份管什么），这里只列最容易踩的：
 
 - **`Where(...)` / `Search(...)` 每条链最多各一次**，编译期强制。多个参数是 AND，OR 用 `tsq.Or(...)`。
 - **`OrderBy` / `Limit` / `Offset` 和 `Page(...)` 二选一**：`Page` 自己决定排序和分页。

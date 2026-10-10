@@ -122,7 +122,8 @@ make gen-check        # 生成物是不是当前源码的输出（tsq gen --chec
 make api-check        # 对外 Go 契约有没有偏离快照
 make api-snapshot     # 刷新快照
 make skill-check      # 索引与子文件对得上，且技能跟上了代码
-make doc-check        # 文档里的 make 目标和 tsq.* 符号都存在、没有退役的 v4 写法、英文侧没有中文
+make doc-check        # 文档里的 make 目标和 tsq.* 符号都存在、没有退役的 v4 写法、英文侧没有中文、
+                      # skills/tsq 覆盖全部对外表面（导出符号、CLI flag、指令、托管角色、db tag 选项）
 make memory-check     # 这波有没有留下项目内存，以及索引加 memory/ 合计有没有超出行数上限（先压缩，压不动了再抬，理由写进 check_change_log.py）
 make release-check    # 版本号四个副本一致，发版工具链钉死版本
 make harness          # 交接前的全部确定性门禁

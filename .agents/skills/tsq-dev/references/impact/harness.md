@@ -15,6 +15,11 @@
 - **实质内容只有一个归宿**：`skills/tsq/references/` 是"怎么用这个库"的唯一来源，
   `docs/` 只做索引指过去。`docs/concepts.md` 和 `docs/quickstart.md` 曾各自把同样的内容
   重写了一遍，两份必然漂移，而漂移之后更糟的是看起来还对的那份。
+- `skills/tsq` 是 `SKILL.md`（路由表 + 最易错的规则）加 `references/<主题>.md`：新功能写进它所属主题的那一份，
+  不要回到单文件。新开主题文件要同时进 `SKILL.md` 的路由表和 `docs/skill.md` 的清单。根包 / `dialect` 的导出符号、CLI flag、
+  `//tsq:` 指令、托管角色、`db` tag 选项每一项都必须在技能里出现。`[门禁: doc-check 的 check_skill_coverage]`
+- `references/migrating-from-v4.md` 是唯一允许写 v4 旧词的使用者文档（`RETIRED_EXEMPT`），它表格的第一列也不对照 API 快照；
+  其余文件照常受 `check_retired_vocabulary` / `check_api_references` 约束。
 - 语言按**读者**划：`skills/tsq` 随发布装进别人的项目，必须英文；README、`docs/`、
   `CHANGELOG.md`、`CONTRIBUTING.md` 面向本项目读者，中文。
   `[门禁: doc-check 的 check_shipped_skill_language]`

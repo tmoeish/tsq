@@ -3,19 +3,23 @@
 TSQ 的核心心智模型——注解 DSL、代码生成、查询构建、运行时注册这几层怎么咬合——
 写在随发布分发的使用者技能里：
 
-**[`skills/tsq/references/CONCEPTS.md`](../skills/tsq/references/CONCEPTS.md)**
+**[`skills/tsq/references/concepts.md`](../skills/tsq/references/concepts.md)**
 
 那份文件是这个主题的**唯一实质来源**。它讲：
 
 | 小节 | 回答 |
 | --- | --- |
-| Main flow | 从 Go struct 到可执行查询，中间经过哪些步骤 |
-| `//tsq:table` / `//tsq:result` | 两种指令各自声明什么 |
-| Generated files | `*.tsq.go`、`*.result.tsq.go`、`runtime.tsq.go` 各是什么 |
-| Rows, tables and results | 行类型、表描述符 `TableOf` 和结果投影的分工 |
-| Runtime and execution | `tsq.Runtime` 与 `Executor` 的边界 |
-| Query lifecycle | `Build()` 校验什么，执行期才校验什么 |
-| Two boundaries to remember | `Where` / `Search` 不是 append；空的列表参数不是"忽略" |
+| Main flow | 从 Go struct 到可执行查询，中间经过哪些步骤，每一步由哪份参考细讲 |
+| Tables, rows and results | 行类型、表描述符 `TableOf` 和结果投影的分工 |
+| Operands, parameters and arguments | 右值、参数和执行参数怎么对上 |
+| Stages: the type system is the validator | 阶段式构建器为什么让写错的顺序编译不过 |
+| Two validation points | `Build()` 校验什么，执行期才校验什么 |
+| Runtime and executors | `tsq.Runtime` 与 `Executor` 的边界 |
+| Semantics that never change silently | 空列表、软删除作用域、乐观锁、UTC 时间 |
+| Adopting TSQ in an existing project | 在已有项目里一条路径一条路径地迁 |
+
+其余主题（CLI、注解、生成代码、运行时、查询、表达式、写入、事务、分页与搜索、方言、错误、
+v4 迁移）各有一份，入口是 [`skills/tsq/SKILL.md`](../skills/tsq/SKILL.md) 的路由表。
 
 ## 为什么这里只有一个链接
 

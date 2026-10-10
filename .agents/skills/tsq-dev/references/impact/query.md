@@ -36,7 +36,7 @@
   `TestIntegrationFullTextSearch` 只断言三者都同意的部分，其中一段把运算符字符当词跑一遍：MySQL 的
   `AGAINST` 参数包着 `REPLACE(?, '*', '')`（理由在 `memory/dialect.md`），去掉它就回到 1064。
 - 渲染字符串变了要同时改 `fulltext_test.go` 的 `TestMatchesIsSpelledPerDialect` 和
-  `skills/tsq/references/REFERENCE.md` 的全文检索小节（那里写着每个方言的拼法）。
+  `skills/tsq/references/paging-search.md` 的全文检索小节（那里写着每个方言的拼法）。
 
 ## 改了相关子查询的作用域传递（`Correlate`、`validateJoinGraph`）
 

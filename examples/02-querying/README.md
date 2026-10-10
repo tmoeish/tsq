@@ -21,7 +21,7 @@ go run ./examples/02-querying
 - **值总是绑定的**：`tsq.Val(v)` 和参数都变成 `?`，从不拼进 SQL 文本。
 - **类型在编译期检查**：`PriceCents` 是 `int64`，`tsq.Val(5000)` 是 `int`，比较它们编译不过，要写
   `tsq.Val(int64(5000))`。编译错误里的方法名告诉你该怎么改，对照表见
-  [REFERENCE § Values fixed in the code](../../skills/tsq/references/REFERENCE.md#values-fixed-in-the-code)。
+  [expressions.md § Values fixed in the code](../../skills/tsq/references/expressions.md#values-fixed-in-the-code)。
 - **子句的顺序和次数由类型保证**：`Where` 一条链只能调一次（全部条件传给这一次），
   `Offset` 只能跟在 `Limit` 后面——写错了编译不过。
 - **查询构建一次、到处复用**：包级变量 `productsInCategory` 在执行时绑定参数；渲染结果按方言缓存。

@@ -51,4 +51,4 @@ order_items 订单明细：复合唯一键，数据库计算的小计（生成�
 在仓库根运行 `make examples`：重新生成 `shop` 和 `01-getting-started/todo`，再编译每一章。
 `make examples-run` 还会把每一章跑一遍。
 
-完整的 API 说明在 [`skills/tsq/references/REFERENCE.md`](../skills/tsq/references/REFERENCE.md)。
+完整的 API 说明在 [`skills/tsq/`](../skills/tsq/SKILL.md)：`SKILL.md` 的路由表按主题指到 `references/` 下对应的那一份。

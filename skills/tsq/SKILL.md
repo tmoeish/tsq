@@ -1,6 +1,6 @@
 ---
 name: tsq
-description: Use this skill when working in a Go project that wants to adopt TSQ, annotate structs with //tsq: directives, run tsq gen, initialize tsq.Runtime, or build typed SQL queries, CRUD flows, bulk UPDATE / DELETE by condition, pagination, search, subqueries, CASE, CTE, set operations, and transactions with TSQ.
+description: Use this skill when working in a Go project that uses or adopts TSQ (github.com/tmoeish/tsq/v5) - annotating structs with //tsq: directives, running the tsq CLI (tsq gen, --check, --dry-run, tsq version), wiring tsq.Open / tsq.NewRuntime and schema policies, or writing typed queries and writes - CRUD, upsert, batch writes, bulk UPDATE / DELETE by condition, soft delete, optimistic locking, pagination, keyset paging, keyword and full-text search, subqueries, CASE, CTE, set operations, row locks, transactions with retry, tracing and dialect differences between MySQL, PostgreSQL and SQLite.
 license: MIT
 compatibility: Intended for GitHub Copilot, Claude Code, and Gemini CLI in Go repositories where the agent can inspect files and optionally run Go or tsq commands.
 metadata:
@@ -10,87 +10,92 @@ metadata:
 
 # TSQ skill
 
-Use this skill for **using TSQ in another Go project**, not for developing the TSQ repository itself.
+TSQ is a type-safe SQL query builder and code generator for Go. You annotate structs with `//tsq:`
+directives, `tsq gen` generates typed table descriptors, columns, CRUD helpers and per-dialect DDL,
+and the `tsq` library builds and runs queries over MySQL, PostgreSQL or SQLite.
 
-If you are working inside the TSQ repository itself, load the `tsq-dev` skill there
-(`.agents/skills/tsq-dev`) instead; it carries the architecture, code map and release
-process for the generator and library. This skill describes the contract, that one
-describes the implementation.
+This skill is for **using TSQ in another Go project**. Inside the TSQ repository itself, load
+`tsq-dev` (`.agents/skills/tsq-dev`) instead: that one describes the implementation, this one the
+contract.
 
-## Activate this skill when
+This file is a router. **Read only the reference files the task needs**; each is self-contained
+and names the others it leans on. Everything an agent needs to use TSQ correctly is in these
+files: there is no need to read the TSQ source or its repository docs.
 
-- the user wants to add TSQ to a Go service or library
-- the task involves `//tsq:` directives or `tsq gen`
-- the task involves generated `*.tsq.go` files
-- the user wants typed query building instead of handwritten SQL helpers
-- the task involves TSQ paging, search, CRUD helpers, bulk `UPDATE` / `DELETE` by condition, transactions, aliases, subqueries, `CASE`, CTEs, set operations, or optimistic locking
+## Which file to read
 
-## Primary goals
+| the task | read |
+| --- | --- |
+| add TSQ to a project, first query end to end | `references/quickstart.md` |
+| the mental model: tables, rows, results, parameters, stages, Build vs execution | `references/concepts.md` |
+| install / pin the CLI, `tsq gen` flags and exit codes, generated `.sql` migrations, `tsq.json`, CI checks | `references/cli.md` |
+| write or change `//tsq:` directives and `db` / `tsq` / `json` tags; DDL type mapping, defaults, indexes | `references/annotations.md` |
+| what `tsq gen` generates (`TableXxx`, columns, `GetByX`, row methods, results, `TSQTables`), hand-written tables | `references/generated-code.md` |
+| `tsq.Open` / `NewRuntime`, DSN rules, schema policies, logging, SQL logging, tracers, `WrapExecutor` | `references/runtime.md` |
+| `Select ... From ... Where ...`, joins, grouping, ordering, locks, read methods, key lookups, `ListIn`, `AttachMany` | `references/queries.md` |
+| predicates, `tsq.Val` / parameters, nullable columns, column functions, `CASE`, `MapInto`, `SelectValue`, compile errors | `references/expressions.md` |
+| aliases and `Rebind`, subqueries, `Exists`, correlated subqueries, CTEs, `UNION` / `INTERSECT` / `EXCEPT`, results | `references/advanced-queries.md` |
+| `Page`, `PageRequest`, keyset paging, keyword `Search`, full-text `Matches` | `references/paging-search.md` |
+| `Insert`, `Update`, `Upsert`, `Batch*`, soft / hard delete, `Restore`, `UpdateTable` / `DeleteFrom`, managed columns, optimistic locking | `references/writes.md` |
+| `WithTx` / `WithTxResult`, isolation, read-only, retry, nesting, what a rollback does | `references/transactions.md` |
+| what each engine supports, capability checks, driver names, engine-specific behavior | `references/dialects.md` |
+| an error TSQ returned: what it means and how to handle it | `references/errors.md` |
+| upgrading a project from TSQ v4 | `references/migrating-from-v4.md` |
 
-1. Put TSQ in the target project's normal model/query package layout.
-2. Keep source-of-truth in handwritten structs and annotations.
-3. Generate code with `tsq gen`.
-4. Use the current Build-based API and current runtime API.
-5. Preserve dialect correctness and transaction boundaries.
+## Workflow in a target project
 
-## Working rules
+1. Inspect `go.mod` (module path, current TSQ version), the package that owns the DB structs, the
+   DB bootstrap code, and the tests that cover the persistence path you change.
+2. Add or change `//tsq:` directives on the structs (`annotations.md`).
+3. Run `tsq gen <package>` with a CLI pinned to the `go.mod` version (`cli.md`). Never hand-edit
+   `*.tsq.go`, `*.result.tsq.go`, `runtime.tsq.go`, `tsq.json` or the generated `.sql` files.
+4. Wire `tsq.Open(ctx, driver, dsn, pkg.TSQTables(), opts...)` — or `tsq.NewRuntime` over an
+   existing pool — in the existing bootstrap path (`runtime.md`).
+5. Replace one query or write path at a time, and run the project's tests.
 
-- Prefer `//tsq:table` / `//tsq:result` directives over handwritten metadata layers.
-- There is no formatting step: `//tsq:` directives survive gofmt.
-- Treat generated `*.tsq.go` and `*.result.tsq.go` as outputs; do not hand-edit them unless the user is explicitly debugging generation output.
-- Prefer the current Build-based query flow:
-  `tsq.Select(...).From(...).Where(...).Build()`
-- Pass `runtime` (or the `WithTx` executor) where a `tsq.Executor` is needed; wrap a pool TSQ did not open with `tsq.WrapExecutor(db, dialect.MySQL)` (the `dialect` package names the three engines).
-- Values known only at execution are parameters: `col.EQ(col.Param())` in the query and `col.Bind(v)` when running it, or `tsq.NewParam[T]("name")` when a column needs two values. Arguments are `tsq.Arg` values matched by parameter, never positional.
-- Row writes go through the generated row methods (`row.Insert(ctx, db)`) or the table descriptor (`TableXxx.BatchInsert(ctx, db, rows)`). A row read with a partial `Select` is saved with the columns it holds, `row.Update(ctx, db, TableXxx.Title)`; a plain `Update` of it is refused, since it would zero the unread columns.
-- Use `TableXxx.Upsert(ctx, db, &row, tsq.OnConflict(key...))` / `BatchUpsert` for insert-or-update by the primary key (no `OnConflict`) or a unique index; `.Update(cols...)` writes only those columns over a conflicting row. On MySQL it is refused while the row could hit another unique key.
-- Use `Runtime.WithTx(...)` when several TSQ operations must share one transaction.
-- Use `Runtime.WithTxResult(...)` when that transaction callback returns a typed value; return a small struct when several values come back.
-- Functions of a column return `tsq.Expression[T]`, which `Select` does not take: project it with `tsq.MapInto`, or read it alone with `tsq.SelectValue` (`tsq.SelectNullValue` when it can be NULL), whose rows are the values. A `SelectValue` stage is itself a typed subquery: `col.In(tsq.SelectValue(other).From(t).Where(...))`, no `Build` needed.
-- Use `tsq.UpdateTable(TableXxx)` for `UPDATE ... WHERE`, `tsq.DeleteFrom(TableXxx)` for a soft delete by condition and `tsq.HardDeleteFrom(TableXxx)` for `DELETE ... WHERE`, over rows the caller does not hold. They skip the optimistic-lock check but still increment `version` and require exactly one `Where(...)`. `UpdateTable` also refreshes `updated_at` unless you `Set` it; `DeleteFrom` takes only a table that declares `deleted_at`.
-- Remember that `Delete` is always a soft delete and removing a row always says `Hard`: only a table declaring `deleted_at` (a `*tsq.SoftDeleteTableOf`) has `Delete`, `Restore`, `WithDeleted()` and `tsq.DeleteFrom`; on any other table they do not compile, and `HardDelete` / `tsq.HardDeleteFrom` is the only delete. Deleted rows are out of scope for every query and `UpdateTable` / `DeleteFrom` naming the table, joins included; never add a `deleted_at` filter by hand. `TableXxx.WithDeleted()` includes them without changing what a statement does: a delete through it is still soft.
-- Nullable fields are `tsq.NullColumn[Xxx, T]` compared by their value type; write NULL with `SetNull`. A query refuses to read a value that can be NULL (nullable column, outer-joined table, aggregate without GROUP BY) into a non-nullable field: prefer an inner join or `tsq.Coalesce`, else `tsq.MapIntoNull` into a nullable field; use `tsq.SelectNullValue` for a single value that can be NULL.
-- Column functions are package-level and type-constrained: `tsq.Upper(col)`, `tsq.Sum(col)`, `tsq.Count(col)`. Do not look for them as column methods.
-- `query.Page` takes a typed `tsq.Paging`; convert an HTTP `tsq.PageRequest` with `req.Paging(sortableCols...)`, which is also where it is validated and which carries the request's keyword into `Page`. A size above the runtime cap is served capped, not rejected.
-- Transaction options follow the callback: `runtime.WithTx(ctx, fn, tsq.WithRetry(tsq.IsRetryableTxError))`.
-- Columns are fields of the generated table: `TableXxx.Name`, and `TableXxx.Columns()` for `Select`. An alias is `TableXxx.As("x")`, whose fields are the columns bound to it.
-- Read by primary key with `TableXxx.Get(ctx, db, id)` / `Find` / `Fetch(ctx, db, ids...)`, and by a unique index with the generated `TableXxx.GetByEmail` / `FindByEmail` / `FetchByEmail`. Write lookups on plain indexes with the builder.
-- Do not assume this skill ships management scripts; install or upgrade TSQ with explicit `go install .../cmd/tsq@version` commands, and run `tsq gen` directly against the chosen package.
-- The builder is stage-based: `Where(...)` and `Search(...)` each appear at most once per chain, enforced by the Go type system at compile time. Pass all filter conditions to the single `Where(...)` call; use `tsq.Or(...)` for OR groups. Both clauses can coexist in either order.
-- Remember that `In` over an empty list parameter matches nothing and `NotIn` matches everything; the filter is never dropped.
-- Predicate naming: `Op(rhs)` takes a column, `Param`, `tsq.Val(v)` or subquery (`tsq.Vals(vs...)` for `In`); an untyped numeric constant needs its column's type, `tsq.Val(int64(90))`; negations are `Not*` (`NotIn`, `tsq.NotLike`); pattern matching is package functions over text columns: `tsq.StartsWith(col, tsq.Val(s))` (or a param) escapes wildcards, while `tsq.Like(col, pattern)` takes a pattern as written. Required arguments are separate parameters: `Where(cond, more...)`, `InnerJoin(t, on, more...)`, `GroupBy(col, more...)`, `OrderBy(term, more...)`, `tsq.Case(cond, result)`; there is no `Join`, use `InnerJoin`.
-- Remember that `Build()` validates query structure, while execution validates dialect capabilities.
-- Do not assume a custom `driver.Valuer` / `sql.Scanner` type implies a DDL column type; use an explicit `db:"...,type:JSON"` / `type:TEXT` / `type:JSONB"` override when the Go type is not directly mappable.
+## Rules that are easy to get wrong
 
-## What to inspect in the target project first
+- **Stages, not strings.** `tsq.Select(cols...).From(t).Where(cond, more...).OrderBy(...).Build()`.
+  `Where(...)` and `Search(...)` each appear at most once per chain — a compile-time rule. Pass all
+  conditions to the one `Where` (they are ANDed); `tsq.Or(...)` / `tsq.And(...)` group them.
+- **Values are operands.** A fixed value is `tsq.Val(v)` (lists `tsq.Vals(vs...)`); an untyped
+  numeric constant needs the column's type, `tsq.Val(int64(1))`. A value known at execution is a
+  parameter: `col.EQ(col.Param())` in the query, `col.Bind(v)` when running it, or
+  `tsq.NewParam[T]("name")` when one column needs two values. Arguments match by parameter, never
+  by position.
+- **Executors.** Pass the `*tsq.Runtime`, the executor `WithTx` hands its callback, or
+  `tsq.WrapExecutor(db, dialect.Postgres)`. A bare `*sql.DB` does not compile.
+- **Expressions are not columns.** `tsq.Upper(col)`, `tsq.Sum(col)` and friends are package
+  functions returning `tsq.Expression[T]`; `Select` takes columns, so project an expression with
+  `tsq.MapInto(expr, fieldPtr)` or read it alone with `tsq.SelectValue` / `tsq.SelectNullValue`.
+- **NULL is in the types.** Nullable fields are `tsq.NullColumn[R, T]`, compared by value type and
+  written NULL with `SetNull`. A value that can be NULL (nullable column, outer-joined table,
+  aggregate without `GROUP BY`) cannot be read into a non-nullable field: the query refuses before
+  it runs.
+- **Delete is soft, removal says Hard.** Only a table declaring `deleted_at` has `Delete`,
+  `Restore`, `WithDeleted()` and `tsq.DeleteFrom`; everything that removes rows is `HardDelete*` /
+  `tsq.HardDeleteFrom`. Deleted rows are out of every query's scope; never filter `deleted_at` by
+  hand.
+- **Partial reads save partially.** A row read with a narrow `Select` must be saved with
+  `row.Update(ctx, db, TableXxx.Col, ...)`; a plain `Update` of it is refused.
+- **Bulk changes are statements.** `tsq.UpdateTable(TableXxx).Set(...).Where(...)`, never "list the
+  rows and `Update` each". They skip the version check but still increment `version`.
+- **Empty lists never drop a filter.** `In` over an empty list matches nothing, `NotIn` everything.
+- **Two validation points.** `Build()` checks structure; dialect support (CTE, `FULL JOIN`, row
+  locks, `INTERSECT ALL`) is checked when the query runs, so one `*Query` serves every engine.
+- **Batch writes are not transactions.** Wrap `Batch*` in `runtime.WithTx(ctx, fn, opts...)` when it
+  must be all or nothing; options follow the callback.
+- **Codec types need `type:`.** A field whose Go type implements `driver.Valuer` / `sql.Scanner`
+  must declare its column type, `db:"meta,type:JSON"`; TSQ will not guess.
+- **One TSQ version per repository.** The CLI that runs `tsq gen` must match the library in
+  `go.mod`; generated headers and `tsq.json` record the version.
 
-- `go.mod` for module path and existing TSQ version
-- packages that own DB structs, persistence models, and result models
-- DB bootstrap code where dialect and runtime should be initialized
-- handwritten SQL helpers that TSQ should replace
-- tests that cover the persistence path being changed
+## Do not
 
-## Recommended operating sequence
-
-1. Choose the target package for table structs and result structs.
-2. Add or update the `//tsq:` directives.
-3. Run `tsq gen`.
-4. Wire `tsq.Open(ctx, driverName, dsn, package.TSQTables(), opts...)` (or `tsq.NewRuntime(ctx, db, dialect.Postgres, ...)` over an existing pool) in the existing DB bootstrap path.
-5. Replace one query or CRUD path at a time.
-6. Keep the change aligned with the target project's existing tests and transaction model.
-
-## Do not do these things
-
-- do not hand-maintain generated column metadata or CRUD helpers
-- do not try to call `Where(...)` or `Search(...)` more than once per chain; the stage-based type system makes this a compile error — put all conditions in the single call
-- do not assume every built query runs on every dialect
-- do not treat an empty list parameter as “ignore this filter”
-- do not pass values positionally to `List` / `Get` / `Exec`; bind them to parameters
-- do not move transaction boundaries into hidden helper behavior
-- do not emulate `UPDATE ... WHERE` by listing rows and calling `Update(...)` per row; use `tsq.UpdateTable(TableXxx)`
-
-## Reference map
-
-- `references/QUICKSTART.md` — shortest end-to-end setup in a fresh Go project
-- `references/CONCEPTS.md` — mental model for annotations, generated files, tables and rows, parameters, runtime, and execution
-- `references/REFERENCE.md` — TSQ DSL, features, query patterns, runtime patterns, and important edge cases
+- hand-maintain column metadata, CRUD helpers or generated files
+- call `Where` / `Search` twice, or turn a compile error into a runtime branch
+- pass values positionally to `List` / `Get` / `Exec`
+- assume a query that builds runs on every engine
+- hide transaction boundaries inside helpers, or expect `Batch*` to open one
+- bundle install or generate scripts: `go install` and `tsq gen <package>` are one explicit
+  command each, and the package path is project-specific

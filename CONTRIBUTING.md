@@ -181,10 +181,10 @@ tsq.json，以及和它同目录的 {mysql,postgres,sqlite}.sql
 
 ## 语言
 
-- **英文**：代码注释、Go doc、`README.md`、`docs/`、`skills/tsq`、提交主题——这些是使用者
-  读的东西。
-- **中文**：`CHANGELOG.md`、`AGENTS.md`、`CLAUDE.md`、本文档、`.agents/skills/tsq-dev`——
-  这些的读者是维护者。
+- **英文**：代码注释、Go doc、`skills/tsq`、提交主题——读者是全世界的使用者和他们的 agent
+  （`make doc-check` 守着前三项）。
+- **中文**：`README.md`、`docs/`、`CHANGELOG.md`、`AGENTS.md`、`CLAUDE.md`、本文档、
+  `.agents/skills/tsq-dev`——读者是这个项目的人。分界按读者划，完整说法在 `AGENTS.md` § Go 代码风格。
 
 ## 获取帮助
 

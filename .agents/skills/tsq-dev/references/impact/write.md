@@ -33,8 +33,8 @@
   `deleted_at` 且只匹配活行。`softdelete_test.go` 用一张没有 `version` 的表守着"旧副本复活已删行"。
 - **托管时间戳和墓碑在库里维护**（`applyTimestamp` / `applyTombstone` / `isUnset`）。新增一种
   字段形态要同时加进这三个函数、`timestamps_test.go` 的类型表、生成器的
-  `validateTimestampField` / `validateSoftDeleteField`，以及 `skills/tsq` 的"Supported field
-  types"。
+  `validateTimestampField` / `validateSoftDeleteField`，以及 `skills/tsq/references/annotations.md`
+  § `//tsq:managed` 的 "Supported field types"。
 - `Insert` 只在字段**未设置**时盖 `created_at` / `updated_at`（导入历史数据时不能丢调用方的
   时间），`Update` **总是**刷新 `updated_at`。
 - 给 `TableSpec` 加字段不是破坏性变更；给 `Table` 接口加方法也不影响使用者（它是封闭的），但
@@ -79,7 +79,7 @@
   三个方言各设计一种 `UPDATE ... FROM` 写法。
 - `Set` 是泛型方法，所以 `UpdateStage` / `SetStage` 必须是具体类型；`Where` 之后才是接口。给 `UpdateStage` 加方法
   时想清楚它能不能出现在第一个 `Set` 之前。
-- 使用者文档三处要同步：`skills/tsq/references/REFERENCE.md` §8 与 §13、`README.md`
+- 使用者文档三处要同步：`skills/tsq/references/writes.md`（Row writes、Optimistic locking）、`README.md`
   "常见边界"、`BEST_PRACTICES.md` §3.8。
 
 ## 改了批量写（`rows.go`）
