@@ -163,7 +163,8 @@ Go 的语义化导入版本要求：
 3. `README.md`、`docs/`、`skills/tsq`、`CHANGELOG.md` 的迁移说明全部更新，并**删掉 README 顶部
    "v5 正在开发中，尚未发布"的提示**——它只在默认分支领先于已发布版本时成立，没有门禁会提醒它过期。
 4. 然后才打 `v5.0.0`。首个 v5 用 `--version v5.0.0` 显式指定：`latest_tag()` 只看本主版本线，
-   这时还没有 v5 的 tag 可作基线。
+   这时还没有 v5 的 tag 可作基线；
+   同理"有没有使用者可见的改动"和空树比，整个仓库都算新的（`make release RELEASE_ARGS="--version v5.0.0"`）。
 
 漏掉第 1 步就打 tag，Go Proxy 会判这个版本非法，使用者 `go get` 收到 `invalid version`，
 而这个 tag 已经不能重用了。所以 `release.py` 检测到主版本跨越会直接拒绝，让你把它当成一波
