@@ -83,7 +83,8 @@ make release             # 真的发
    而即将发布的 tag 那一刻还不存在，用它生成会让 `release-check` 永远失败（想写对头部
    要先打 tag，想打 tag 要先过 release-check）。见 `memory/codegen.md` 的"生成器不能带 `git describe` 的版本号"。
 8. `make harness`——全绿才继续。
-9. 提交，推 release 分支，开 PR，开启自动合并。
+9. 提交，推 release 分支，开 PR，开启自动合并。PR 正文是发版条目，超过 GitHub 的 65536 字符上限时截断并指向
+   CHANGELOG（大版本的条目会超）。
 10. 等 CI 全绿、PR 被 squash 合入。
 11. 回 `main`，`git fetch` + `git reset --hard origin/main` 采纳合并结果——squash 造出
     的是新 commit，`git pull --ff-only` 会报分叉。**重新读一遍 `buildinfo` 确认版本对得

@@ -157,6 +157,22 @@ def commits_since(previous: Version | None) -> list[tuple[str, str]]:
     return entries
 
 
+# GitHub 拒绝超过 65536 个字符的 PR 正文。v5.0.0 的条目是一整个大版本的 CHANGELOG，66560 个
+# 字符，`gh pr create` 在分支已推送之后失败，剩下的步骤只能手工补（2026-10-10）。
+PR_BODY_LIMIT: Final = 60000
+
+
+def release_pr_body(body: str, version: Version) -> str:
+    """PR 正文就是发版条目；放不下时截断并指向 CHANGELOG 里完整的那一段。"""
+    if len(body) <= PR_BODY_LIMIT:
+        return body
+
+    note = f"\n\n…（条目太长，GitHub 的 PR 正文放不下；完整内容见 CHANGELOG.md 的 `## [{version.major}.{version.minor}.{version.patch}]` 段）"
+    cut = body.rfind("\n", 0, PR_BODY_LIMIT - len(note))
+
+    return body[: cut if cut > 0 else PR_BODY_LIMIT - len(note)] + note
+
+
 # git 的空树对象：任何仓库里都存在，`git diff <它> HEAD` 列出 HEAD 的全部文件。
 EMPTY_TREE: Final = "4b825dc642cb6eb9a060e54bf8d69288fbee4904"
 
@@ -476,7 +492,7 @@ def main(argv: Sequence[str]) -> int:
             "--base", branch,
             "--head", release_branch,
             "--title", subject,
-            "--body", pr_body.strip(),
+            "--body", release_pr_body(pr_body.strip(), version),
         ],
         capture=True,
     ).strip()

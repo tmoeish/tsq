@@ -24,7 +24,7 @@
 
 squash 会改写提交信息（追加 ` (#59)`）、SHA 和历史形状；`check_change_log.py` 量长度前剥掉 ` (#\d+)`。`doc-check` 守着文档里的 `make X`，但**管不到 `.github/workflows/`**（CI 调过不存在的目标），改名时手动 grep。
 CI 的 gosec 跑两遍（门禁、SARIF），曾只有一遍排除 G201/G304，门禁已接受的每处读文件都开告警；现在同一组排除，v4 线同修。**`latest_tag()` 两条线都按模块主版本比**：
-v4.10.1 一发，main 的 `release-check` 把 4.x 的 buildinfo 判成倒退、所有 PR 变红（2026-09-28）——**改发版脚本时两条线一起改。** 本主版本线还没有 tag 时 `user_visible_changes` 曾 diff 单独的 `HEAD`（工作区对 HEAD，提交后恒空），v5.0.0 被判"无使用者可见改动"拒发；现在和空树比（2026-10-10）。
+v4.10.1 一发，main 的 `release-check` 把 4.x 的 buildinfo 判成倒退、所有 PR 变红（2026-09-28）——**改发版脚本时两条线一起改。** 本主版本线还没有 tag 时 `user_visible_changes` 曾 diff 单独的 `HEAD`（工作区对 HEAD，提交后恒空），v5.0.0 被判"无使用者可见改动"拒发；现在和空树比（2026-10-10）。同一次发版里整段 v5 条目（66560 字）超过 GitHub PR 正文上限 65536，`gh pr create` 在推送后失败，PR / tag 手工补完；现在正文超长就截断并指向 CHANGELOG。
 
 ## 发版波必须从内存门禁里豁免 (2026-08-21)
 
