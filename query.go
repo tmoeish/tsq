@@ -547,7 +547,7 @@ func (q *Query[O]) Find(ctx context.Context, db Executor, args ...Arg) (*O, erro
 // Exists reports whether any row matches. It reads at most one row rather than
 // counting them all.
 func (q *Query[O]) Exists(ctx context.Context, db Executor, args ...Arg) (bool, error) {
-	return traceExecutor1(ctx, db, q.traceInfo(TraceOpGet), func(ctx context.Context) (bool, error) {
+	return traceExecutor1(ctx, db, q.traceInfo(TraceOpExists), func(ctx context.Context) (bool, error) {
 		// Whether a row exists does not depend on reading it, so a value that could
 		// not be scanned into O is no reason to refuse.
 		// The arguments are those of the query, as for Count: SELECT 1 drops the
@@ -558,7 +558,7 @@ func (q *Query[O]) Exists(ctx context.Context, db Executor, args ...Arg) (bool, 
 		}
 
 		stmt := stmts[0]
-		logSQLForExecutor(ctx, db, "get", stmt.sql, stmt.args)
+		logSQLForExecutor(ctx, db, "exists", stmt.sql, stmt.args)
 
 		rows, err := db.QueryContext(ctx, stmt.sql, stmt.args...)
 		if err != nil {

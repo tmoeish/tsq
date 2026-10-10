@@ -71,7 +71,7 @@ func newEnrollmentTable() EnrollmentTable {
 			{
 				Name: "uid",
 				Type: tsqdialect.ColumnType{
-					Kind: tsqdialect.KindInt,
+					Kind: tsqdialect.ColumnKindInt,
 					Bits: 64,
 				},
 				PrimaryKey:    true,
@@ -80,21 +80,21 @@ func newEnrollmentTable() EnrollmentTable {
 			{
 				Name: "created_at",
 				Type: tsqdialect.ColumnType{
-					Kind: tsqdialect.KindTime,
+					Kind: tsqdialect.ColumnKindTime,
 				},
 				Default: "CURRENT_TIMESTAMP",
 			},
 			{
 				Name: "updated_at",
 				Type: tsqdialect.ColumnType{
-					Kind:     tsqdialect.KindTime,
+					Kind:     tsqdialect.ColumnKindTime,
 					Nullable: true,
 				},
 			},
 			{
 				Name: "deleted_at",
 				Type: tsqdialect.ColumnType{
-					Kind: tsqdialect.KindInt,
+					Kind: tsqdialect.ColumnKindInt,
 					Bits: 64,
 				},
 				Default: "0",
@@ -102,7 +102,7 @@ func newEnrollmentTable() EnrollmentTable {
 			{
 				Name: "version",
 				Type: tsqdialect.ColumnType{
-					Kind: tsqdialect.KindInt,
+					Kind: tsqdialect.ColumnKindInt,
 					Bits: 64,
 				},
 				Default: "1",
@@ -110,35 +110,35 @@ func newEnrollmentTable() EnrollmentTable {
 			{
 				Name: "course_id",
 				Type: tsqdialect.ColumnType{
-					Kind: tsqdialect.KindInt,
+					Kind: tsqdialect.ColumnKindInt,
 					Bits: 64,
 				},
 			},
 			{
 				Name: "fee_cents",
 				Type: tsqdialect.ColumnType{
-					Kind: tsqdialect.KindInt,
+					Kind: tsqdialect.ColumnKindInt,
 					Bits: 64,
 				},
 			},
 			{
 				Name: "learner_id",
 				Type: tsqdialect.ColumnType{
-					Kind: tsqdialect.KindInt,
+					Kind: tsqdialect.ColumnKindInt,
 					Bits: 64,
 				},
 			},
 			{
 				Name: "score",
 				Type: tsqdialect.ColumnType{
-					Kind: tsqdialect.KindInt,
+					Kind: tsqdialect.ColumnKindInt,
 					Bits: 64,
 				},
 			},
 			{
 				Name: "status",
 				Type: tsqdialect.ColumnType{
-					Kind: tsqdialect.KindInt,
+					Kind: tsqdialect.ColumnKindInt,
 					Bits: 32,
 				},
 			},
@@ -160,16 +160,16 @@ func (t EnrollmentTable) As(alias string) EnrollmentTable {
 
 	return EnrollmentTable{
 		SoftDeleteTableOf: a,
-		UID:               t.UID.WithTable(a),
-		CreatedAt:         t.CreatedAt.WithTable(a),
+		UID:               t.UID.Rebind(a),
+		CreatedAt:         t.CreatedAt.Rebind(a),
 		UpdatedAt:         tsq.RebindNull(t.UpdatedAt, a),
-		DeletedAt:         t.DeletedAt.WithTable(a),
-		Version:           t.Version.WithTable(a),
-		LearnerID:         t.LearnerID.WithTable(a),
-		CourseID:          t.CourseID.WithTable(a),
-		Status:            t.Status.WithTable(a),
-		Score:             t.Score.WithTable(a),
-		FeeCents:          t.FeeCents.WithTable(a),
+		DeletedAt:         t.DeletedAt.Rebind(a),
+		Version:           t.Version.Rebind(a),
+		LearnerID:         t.LearnerID.Rebind(a),
+		CourseID:          t.CourseID.Rebind(a),
+		Status:            t.Status.Rebind(a),
+		Score:             t.Score.Rebind(a),
+		FeeCents:          t.FeeCents.Rebind(a),
 	}
 }
 

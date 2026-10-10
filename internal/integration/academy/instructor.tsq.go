@@ -62,7 +62,7 @@ func newInstructorTable() InstructorTable {
 			{
 				Name: "id",
 				Type: tsqdialect.ColumnType{
-					Kind: tsqdialect.KindInt,
+					Kind: tsqdialect.ColumnKindInt,
 					Bits: 64,
 				},
 				PrimaryKey:    true,
@@ -71,35 +71,35 @@ func newInstructorTable() InstructorTable {
 			{
 				Name: "created_at",
 				Type: tsqdialect.ColumnType{
-					Kind:     tsqdialect.KindTime,
+					Kind:     tsqdialect.ColumnKindTime,
 					Nullable: true,
 				},
 			},
 			{
 				Name: "bio",
 				Type: tsqdialect.ColumnType{
-					Kind: tsqdialect.KindString,
+					Kind: tsqdialect.ColumnKindString,
 					Size: 2048,
 				},
 			},
 			{
 				Name: "email",
 				Type: tsqdialect.ColumnType{
-					Kind: tsqdialect.KindString,
+					Kind: tsqdialect.ColumnKindString,
 					Size: 160,
 				},
 			},
 			{
 				Name: "name",
 				Type: tsqdialect.ColumnType{
-					Kind: tsqdialect.KindString,
+					Kind: tsqdialect.ColumnKindString,
 					Size: 120,
 				},
 			},
 			{
 				Name: "specialty",
 				Type: tsqdialect.ColumnType{
-					Kind: tsqdialect.KindString,
+					Kind: tsqdialect.ColumnKindString,
 					Size: 160,
 				},
 			},
@@ -119,12 +119,12 @@ func (t InstructorTable) As(alias string) InstructorTable {
 
 	return InstructorTable{
 		TableOf:   a,
-		ID:        t.ID.WithTable(a),
+		ID:        t.ID.Rebind(a),
 		CreatedAt: tsq.RebindNull(t.CreatedAt, a),
-		Name:      t.Name.WithTable(a),
-		Email:     t.Email.WithTable(a),
-		Specialty: t.Specialty.WithTable(a),
-		Bio:       t.Bio.WithTable(a),
+		Name:      t.Name.Rebind(a),
+		Email:     t.Email.Rebind(a),
+		Specialty: t.Specialty.Rebind(a),
+		Bio:       t.Bio.Rebind(a),
 	}
 }
 

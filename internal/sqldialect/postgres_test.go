@@ -16,14 +16,14 @@ func TestPostgresUnsignedIntegersFit(t *testing.T) {
 	d := PostgresDialect{}
 
 	for bits, want := range map[int]string{8: "SMALLINT", 16: "INTEGER", 32: "BIGINT", 64: "NUMERIC(20)"} {
-		declared := ColumnSpec{Name: "n", Type: ColumnType{Kind: KindInt, Bits: bits, Unsigned: true}}
+		declared := ColumnSpec{Name: "n", Type: ColumnType{Kind: ColumnKindInt, Bits: bits, Unsigned: true}}
 		if got := d.ColumnTypeSQL(declared.Type); got != want {
 			t.Errorf("uint%d = %s, want %s", bits, got, want)
 		}
 	}
 
 	back, err := parsePostgresColumnType("numeric", "numeric", "numeric(20,0)", sql.NullInt64{})
-	if err != nil || !SameColumnType(d, Column{Name: "n", Type: back}, ColumnSpec{Name: "n", Type: ColumnType{Kind: KindInt, Bits: 64, Unsigned: true}}) {
+	if err != nil || !SameColumnType(d, Column{Name: "n", Type: back}, ColumnSpec{Name: "n", Type: ColumnType{Kind: ColumnKindInt, Bits: 64, Unsigned: true}}) {
 		t.Errorf("numeric(20,0) = %+v, %v; want it to match uint64", back, err)
 	}
 
@@ -33,7 +33,7 @@ func TestPostgresUnsignedIntegersFit(t *testing.T) {
 			t.Fatal(err)
 		}
 
-		for _, declared := range []ColumnType{{Kind: KindFloat, Bits: 64}, {Kind: KindTime}} {
+		for _, declared := range []ColumnType{{Kind: ColumnKindFloat, Bits: 64}, {Kind: ColumnKindTime}} {
 			if SameColumnType(d, Column{Name: "n", Type: back}, ColumnSpec{Name: "n", Type: declared}) {
 				t.Errorf("%s matched a declared %+v", formatted, declared)
 			}
@@ -59,22 +59,22 @@ func TestPostgresUnsignedKeysAreSerialsOfTheColumnTheyCompareTo(t *testing.T) {
 		{32, "BIGSERIAL", "bigint", 64},
 		{64, "BIGSERIAL", "bigint", 64},
 	} {
-		declared := ColumnSpec{Name: "id", Type: ColumnType{Kind: KindInt, Bits: c.bits, Unsigned: true}, PrimaryKey: true, AutoIncrement: true}
+		declared := ColumnSpec{Name: "id", Type: ColumnType{Kind: ColumnKindInt, Bits: c.bits, Unsigned: true}, PrimaryKey: true, AutoIncrement: true}
 
 		definition, err := ColumnDefinitionSQL(d, declared)
 		if err != nil || definition != `"id" `+c.created+` PRIMARY KEY` {
 			t.Errorf("uint%d key = %s, %v; want %s", c.bits, definition, err, c.created)
 		}
 
-		live := Column{Name: "id", Type: ColumnType{Kind: KindInt, Bits: c.storedBits}, PrimaryKey: true, AutoIncrement: true}
+		live := Column{Name: "id", Type: ColumnType{Kind: ColumnKindInt, Bits: c.storedBits}, PrimaryKey: true, AutoIncrement: true}
 		if !SameColumnType(d, live, declared) {
 			t.Errorf("uint%d key created as %s does not match its own declaration", c.bits, c.created)
 		}
 	}
 
 	// A uint64 column that is not a key is still the NUMERIC(20) that holds its range.
-	plain := ColumnSpec{Name: "n", Type: ColumnType{Kind: KindInt, Bits: 64, Unsigned: true}}
-	if SameColumnType(d, Column{Name: "n", Type: ColumnType{Kind: KindInt, Bits: 64}}, plain) {
+	plain := ColumnSpec{Name: "n", Type: ColumnType{Kind: ColumnKindInt, Bits: 64, Unsigned: true}}
+	if SameColumnType(d, Column{Name: "n", Type: ColumnType{Kind: ColumnKindInt, Bits: 64}}, plain) {
 		t.Error("a BIGINT passed for a uint64 column that is not an auto-increment key")
 	}
 }
@@ -86,7 +86,7 @@ func TestPostgresUnsignedKeysAreSerialsOfTheColumnTheyCompareTo(t *testing.T) {
 // the assignment refuses one that does not fit.
 func TestPostgresTypeChangeLeavesTheLengthToTheAssignment(t *testing.T) {
 	d := PostgresDialect{}
-	text := func(size int) ColumnType { return ColumnType{Kind: KindString, Size: size} }
+	text := func(size int) ColumnType { return ColumnType{Kind: ColumnKindString, Size: size} }
 
 	for _, c := range []struct {
 		before, after ColumnType
@@ -94,21 +94,21 @@ func TestPostgresTypeChangeLeavesTheLengthToTheAssignment(t *testing.T) {
 	}{
 		{ColumnType{RawType: "TEXT"}, text(5), `TYPE VARCHAR(5) USING "c"::TEXT;`},
 		{text(40), ColumnType{RawType: "CHAR(3)"}, `TYPE CHAR(3) USING "c"::TEXT;`},
-		{ColumnType{Kind: KindInt, Bits: 64}, text(1), `TYPE VARCHAR(1) USING "c"::TEXT;`},
-		{ColumnType{Kind: KindTime}, text(10), `TYPE VARCHAR(10) USING "c"::TEXT;`},
-		{text(40), ColumnType{Kind: KindInt, Bits: 64}, `TYPE BIGINT USING "c"::BIGINT;`},
+		{ColumnType{Kind: ColumnKindInt, Bits: 64}, text(1), `TYPE VARCHAR(1) USING "c"::TEXT;`},
+		{ColumnType{Kind: ColumnKindTime}, text(10), `TYPE VARCHAR(10) USING "c"::TEXT;`},
+		{text(40), ColumnType{Kind: ColumnKindInt, Bits: 64}, `TYPE BIGINT USING "c"::BIGINT;`},
 		{text(40), ColumnType{RawType: "TEXT[]"}, `TYPE TEXT[] USING "c"::TEXT[];`},
 		// BOOLEAN casts to INTEGER only, and no integer casts to it.
-		{ColumnType{Kind: KindBool}, ColumnType{Kind: KindInt, Bits: 64}, `TYPE BIGINT USING "c"::INTEGER;`},
-		{ColumnType{Kind: KindInt, Bits: 64}, ColumnType{Kind: KindBool}, `TYPE BOOLEAN USING "c" <> 0;`},
-		{ColumnType{Kind: KindFloat, Bits: 64}, ColumnType{Kind: KindBool}, `TYPE BOOLEAN USING "c" <> 0;`},
+		{ColumnType{Kind: ColumnKindBool}, ColumnType{Kind: ColumnKindInt, Bits: 64}, `TYPE BIGINT USING "c"::INTEGER;`},
+		{ColumnType{Kind: ColumnKindInt, Bits: 64}, ColumnType{Kind: ColumnKindBool}, `TYPE BOOLEAN USING "c" <> 0;`},
+		{ColumnType{Kind: ColumnKindFloat, Bits: 64}, ColumnType{Kind: ColumnKindBool}, `TYPE BOOLEAN USING "c" <> 0;`},
 		// Bytes and text carry their bytes over: bytea::TEXT is the hex spelling
 		// ('\x616263' for abc) and text::BYTEA reads the text as an escape string.
-		{ColumnType{Kind: KindBytes}, text(40), `TYPE VARCHAR(40) USING convert_from("c", 'UTF8');`},
+		{ColumnType{Kind: ColumnKindBytes}, text(40), `TYPE VARCHAR(40) USING convert_from("c", 'UTF8');`},
 		{ColumnType{RawType: "BYTEA"}, ColumnType{RawType: "TEXT"}, `TYPE TEXT USING convert_from("c", 'UTF8');`},
-		{text(40), ColumnType{Kind: KindBytes}, `TYPE BYTEA USING convert_to("c", 'UTF8');`},
+		{text(40), ColumnType{Kind: ColumnKindBytes}, `TYPE BYTEA USING convert_to("c", 'UTF8');`},
 		{ColumnType{RawType: "TEXT"}, ColumnType{RawType: "BYTEA"}, `TYPE BYTEA USING convert_to("c", 'UTF8');`},
-		{ColumnType{Kind: KindInt, Bits: 64}, ColumnType{Kind: KindBytes}, `TYPE BYTEA USING "c"::BYTEA;`},
+		{ColumnType{Kind: ColumnKindInt, Bits: 64}, ColumnType{Kind: ColumnKindBytes}, `TYPE BYTEA USING "c"::BYTEA;`},
 	} {
 		statements := d.AlterColumnSQL("t", Column{Name: "c", Type: c.before}, ColumnSpec{Name: "c", Type: c.after})
 		if len(statements) != 1 || !strings.HasSuffix(statements[0], c.want) {
@@ -123,13 +123,13 @@ func TestPostgresOversizedStringsAreText(t *testing.T) {
 	d := PostgresDialect{}
 
 	for size, want := range map[int]string{10485760: "VARCHAR(10485760)", 10485761: "TEXT", 1 << 30: "TEXT"} {
-		if got := d.ColumnTypeSQL(ColumnType{Kind: KindString, Size: size}); got != want {
+		if got := d.ColumnTypeSQL(ColumnType{Kind: ColumnKindString, Size: size}); got != want {
 			t.Errorf("string of %d = %s, want %s", size, got, want)
 		}
 	}
 
 	live, err := parsePostgresColumnType("text", "text", "text", sql.NullInt64{})
-	if err != nil || !SameColumnType(d, Column{Name: "s", Type: live}, ColumnSpec{Name: "s", Type: ColumnType{Kind: KindString, Size: 1 << 30}}) {
+	if err != nil || !SameColumnType(d, Column{Name: "s", Type: live}, ColumnSpec{Name: "s", Type: ColumnType{Kind: ColumnKindString, Size: 1 << 30}}) {
 		t.Errorf("a live TEXT (%+v, %v) does not match the oversized string it was created for", live, err)
 	}
 }
@@ -180,9 +180,9 @@ func TestPostgresAddsAnIdentityToAKeyThatGeneratesNothing(t *testing.T) {
 	t.Parallel()
 
 	d := PostgresDialect{}
-	declared := ColumnSpec{Name: "id", Type: ColumnType{Kind: KindInt, Bits: 64}, PrimaryKey: true, AutoIncrement: true}
+	declared := ColumnSpec{Name: "id", Type: ColumnType{Kind: ColumnKindInt, Bits: 64}, PrimaryKey: true, AutoIncrement: true}
 
-	plain := Column{Name: "id", Type: ColumnType{Kind: KindInt, Bits: 64}, PrimaryKey: true}
+	plain := Column{Name: "id", Type: ColumnType{Kind: ColumnKindInt, Bits: 64}, PrimaryKey: true}
 	want := []string{
 		`ALTER TABLE "order" ALTER COLUMN "id" ADD GENERATED BY DEFAULT AS IDENTITY;`,
 		`SELECT setval(pg_get_serial_sequence('"order"', 'id'), COALESCE((SELECT MAX("id") FROM "order"), 0) + 1, false);`,
@@ -192,13 +192,13 @@ func TestPostgresAddsAnIdentityToAKeyThatGeneratesNothing(t *testing.T) {
 		t.Errorf("plain BIGINT key:\n got %q\nwant %q", got, want)
 	}
 
-	narrow := Column{Name: "id", Type: ColumnType{Kind: KindInt, Bits: 32}, PrimaryKey: true}
+	narrow := Column{Name: "id", Type: ColumnType{Kind: ColumnKindInt, Bits: 32}, PrimaryKey: true}
 	if got := d.AlterColumnSQL("order", narrow, declared); len(got) != 3 || got[0] != `ALTER TABLE "order" ALTER COLUMN "id" TYPE BIGINT;` || !slices.Equal(got[1:], want) {
 		t.Errorf("plain INTEGER key:\n got %q", got)
 	}
 
-	generating := Column{Name: "id", Type: ColumnType{Kind: KindInt, Bits: 64}, PrimaryKey: true, AutoIncrement: true}
-	assigned := ColumnSpec{Name: "id", Type: ColumnType{Kind: KindInt, Bits: 64}, PrimaryKey: true}
+	generating := Column{Name: "id", Type: ColumnType{Kind: ColumnKindInt, Bits: 64}, PrimaryKey: true, AutoIncrement: true}
+	assigned := ColumnSpec{Name: "id", Type: ColumnType{Kind: ColumnKindInt, Bits: 64}, PrimaryKey: true}
 	dropped := []string{
 		`ALTER TABLE "order" ALTER COLUMN "id" DROP IDENTITY IF EXISTS;`,
 		`ALTER TABLE "order" ALTER COLUMN "id" DROP DEFAULT;`,
@@ -208,7 +208,7 @@ func TestPostgresAddsAnIdentityToAKeyThatGeneratesNothing(t *testing.T) {
 		t.Errorf("dropping the generator:\n got %q\nwant %q", got, dropped)
 	}
 
-	notAKey := ColumnSpec{Name: "id", Type: ColumnType{Kind: KindInt, Bits: 64}}
+	notAKey := ColumnSpec{Name: "id", Type: ColumnType{Kind: ColumnKindInt, Bits: 64}}
 	if got := d.AlterColumnSQL("order", generating, notAKey); got != nil {
 		t.Errorf("a key that stops being one rendered %q; want a refusal", got)
 	}

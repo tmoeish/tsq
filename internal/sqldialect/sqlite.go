@@ -432,17 +432,17 @@ func parseSQLiteColumnType(raw string) (ColumnType, error) {
 			}
 		}
 
-		return ColumnType{Kind: KindString, Size: size}, nil
+		return ColumnType{Kind: ColumnKindString, Size: size}, nil
 	case strings.Contains(upper, "BOOLEAN"):
-		return ColumnType{Kind: KindBool}, nil
+		return ColumnType{Kind: ColumnKindBool}, nil
 	case strings.Contains(upper, "BLOB"):
-		return ColumnType{Kind: KindBytes}, nil
+		return ColumnType{Kind: ColumnKindBytes}, nil
 	case strings.Contains(upper, "REAL"), strings.Contains(upper, "FLOA"), strings.Contains(upper, "DOUB"):
-		return ColumnType{Kind: KindFloat, Bits: 64}, nil
+		return ColumnType{Kind: ColumnKindFloat, Bits: 64}, nil
 	case strings.Contains(upper, "TIMESTAMP"), strings.Contains(upper, "DATETIME"), strings.Contains(upper, "DATE"):
-		return ColumnType{Kind: KindTime}, nil
+		return ColumnType{Kind: ColumnKindTime}, nil
 	case strings.Contains(upper, "INT"):
-		return ColumnType{Kind: KindInt, Bits: 64}, nil
+		return ColumnType{Kind: ColumnKindInt, Bits: 64}, nil
 	default:
 		return ColumnType{RawType: rawType}, nil
 	}
@@ -454,21 +454,21 @@ func (d SQLiteDialect) ColumnTypeSQL(desc ColumnType) string {
 	}
 
 	switch desc.Kind {
-	case KindBool:
+	case ColumnKindBool:
 		return "BOOLEAN"
-	case KindBytes:
+	case ColumnKindBytes:
 		return "BLOB"
-	case KindFloat:
+	case ColumnKindFloat:
 		return "REAL"
-	case KindInt:
+	case ColumnKindInt:
 		return "INTEGER"
-	case KindString:
+	case ColumnKindString:
 		if desc.Size <= 0 {
 			return fmt.Sprintf("VARCHAR(%d)", defaultDDLStringSize)
 		}
 
 		return fmt.Sprintf("VARCHAR(%d)", desc.Size)
-	case KindTime:
+	case ColumnKindTime:
 		return "TIMESTAMP"
 	default:
 		return "TEXT"
@@ -476,7 +476,7 @@ func (d SQLiteDialect) ColumnTypeSQL(desc ColumnType) string {
 }
 
 func (d SQLiteDialect) AutoIncrementColumnSQL(quotedColumn string, desc ColumnType) (string, error) {
-	if desc.Kind != KindInt {
+	if desc.Kind != ColumnKindInt {
 		return "", errors.New("auto-increment primary key requires an integer field")
 	}
 

@@ -45,13 +45,13 @@ var Users = usersHandle.Define(TableSpec[user, int64]{
 	UpdatedAt:     User_UpdatedAt,
 	Search:        []SearchColumn{Searchable(User_Name), Searchable(User_Email)},
 	ColumnSpecs: []tsqdialect.ColumnSpec{
-		{Name: "id", Type: tsqdialect.ColumnType{Kind: tsqdialect.KindInt, Bits: 64}, PrimaryKey: true, AutoIncrement: true},
-		{Name: "name", Type: tsqdialect.ColumnType{Kind: tsqdialect.KindString, Size: 64}},
-		{Name: "email", Type: tsqdialect.ColumnType{Kind: tsqdialect.KindString, Size: 128}},
-		{Name: "version", Type: tsqdialect.ColumnType{Kind: tsqdialect.KindInt, Bits: 64}},
-		{Name: "created_at", Type: tsqdialect.ColumnType{Kind: tsqdialect.KindTime}},
-		{Name: "updated_at", Type: tsqdialect.ColumnType{Kind: tsqdialect.KindTime}},
-		{Name: "deleted_at", Type: tsqdialect.ColumnType{Kind: tsqdialect.KindInt, Bits: 64}},
+		{Name: "id", Type: tsqdialect.ColumnType{Kind: tsqdialect.ColumnKindInt, Bits: 64}, PrimaryKey: true, AutoIncrement: true},
+		{Name: "name", Type: tsqdialect.ColumnType{Kind: tsqdialect.ColumnKindString, Size: 64}},
+		{Name: "email", Type: tsqdialect.ColumnType{Kind: tsqdialect.ColumnKindString, Size: 128}},
+		{Name: "version", Type: tsqdialect.ColumnType{Kind: tsqdialect.ColumnKindInt, Bits: 64}},
+		{Name: "created_at", Type: tsqdialect.ColumnType{Kind: tsqdialect.ColumnKindTime}},
+		{Name: "updated_at", Type: tsqdialect.ColumnType{Kind: tsqdialect.ColumnKindTime}},
+		{Name: "deleted_at", Type: tsqdialect.ColumnType{Kind: tsqdialect.ColumnKindInt, Bits: 64}},
 	},
 	Indexes: []IndexSpec{{Name: "ux_users_email", Columns: []string{"email", "deleted_at"}, Unique: true}},
 }, User_DeletedAt)
@@ -79,10 +79,10 @@ var Orders = ordersHandle.Define(TableSpec[order, int64]{
 	PrimaryKey:    Order_ID,
 	AutoIncrement: true,
 	ColumnSpecs: []tsqdialect.ColumnSpec{
-		{Name: "id", Type: tsqdialect.ColumnType{Kind: tsqdialect.KindInt, Bits: 64}, PrimaryKey: true, AutoIncrement: true},
-		{Name: "user_id", Type: tsqdialect.ColumnType{Kind: tsqdialect.KindInt, Bits: 64}},
-		{Name: "amount", Type: tsqdialect.ColumnType{Kind: tsqdialect.KindInt, Bits: 64}},
-		{Name: "note", Type: tsqdialect.ColumnType{Kind: tsqdialect.KindString, Size: 255}},
+		{Name: "id", Type: tsqdialect.ColumnType{Kind: tsqdialect.ColumnKindInt, Bits: 64}, PrimaryKey: true, AutoIncrement: true},
+		{Name: "user_id", Type: tsqdialect.ColumnType{Kind: tsqdialect.ColumnKindInt, Bits: 64}},
+		{Name: "amount", Type: tsqdialect.ColumnType{Kind: tsqdialect.ColumnKindInt, Bits: 64}},
+		{Name: "note", Type: tsqdialect.ColumnType{Kind: tsqdialect.ColumnKindString, Size: 255}},
 	},
 })
 
@@ -121,8 +121,8 @@ func namedTableOf[R any](name string, fields func(*R) (*int64, *string)) *TableO
 		PrimaryKey:    id,
 		AutoIncrement: true,
 		ColumnSpecs: []tsqdialect.ColumnSpec{
-			{Name: "id", Type: tsqdialect.ColumnType{Kind: tsqdialect.KindInt, Bits: 64}, PrimaryKey: true, AutoIncrement: true},
-			{Name: "name", Type: tsqdialect.ColumnType{Kind: tsqdialect.KindString, Size: 64}},
+			{Name: "id", Type: tsqdialect.ColumnType{Kind: tsqdialect.ColumnKindInt, Bits: 64}, PrimaryKey: true, AutoIncrement: true},
+			{Name: "name", Type: tsqdialect.ColumnType{Kind: tsqdialect.ColumnKindString, Size: 64}},
 		},
 	})
 }

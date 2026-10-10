@@ -56,8 +56,8 @@ func TestSplitDDLTagPartsKeepsTypeCommas(t *testing.T) {
 // which is a BLOB on MySQL whatever its size: and was told to set a size:.
 func TestMySQLIndexWarningGivesAFixThatWorks(t *testing.T) {
 	types := map[string]tsqdialect.ColumnType{
-		"h":    {Kind: tsqdialect.KindBytes, Size: 16},
-		"body": {Kind: tsqdialect.KindString, Size: 100000},
+		"h":    {Kind: tsqdialect.ColumnKindBytes, Size: 16},
+		"body": {Kind: tsqdialect.ColumnKindString, Size: 100000},
 	}
 	typeOf := func(c string) (tsqdialect.ColumnType, bool) { t, ok := types[c]; return t, ok }
 

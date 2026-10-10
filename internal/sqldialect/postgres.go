@@ -404,29 +404,29 @@ func parsePostgresColumnType(dataType, udtName, formattedType string, size sql.N
 
 	switch data {
 	case "boolean":
-		return ColumnType{Kind: KindBool}, nil
+		return ColumnType{Kind: ColumnKindBool}, nil
 	case "smallint":
-		return ColumnType{Kind: KindInt, Bits: 16}, nil
+		return ColumnType{Kind: ColumnKindInt, Bits: 16}, nil
 	case "integer":
-		return ColumnType{Kind: KindInt, Bits: 32}, nil
+		return ColumnType{Kind: ColumnKindInt, Bits: 32}, nil
 	case "bigint":
-		return ColumnType{Kind: KindInt, Bits: 64}, nil
+		return ColumnType{Kind: ColumnKindInt, Bits: 64}, nil
 	case "real":
-		return ColumnType{Kind: KindFloat, Bits: 32}, nil
+		return ColumnType{Kind: ColumnKindFloat, Bits: 32}, nil
 	case "double precision":
-		return ColumnType{Kind: KindFloat, Bits: 64}, nil
+		return ColumnType{Kind: ColumnKindFloat, Bits: 64}, nil
 	case "numeric":
 		// NUMERIC(20) is what TSQ declares for uint64; any other NUMERIC keeps its
 		// raw type, so a DECIMAL(10,2) no longer passes for a float column.
 		if n := strings.ReplaceAll(strings.ToLower(formattedType), " ", ""); n == "numeric(20,0)" || n == "numeric(20)" {
-			return ColumnType{Kind: KindInt, Bits: 64, Unsigned: true}, nil
+			return ColumnType{Kind: ColumnKindInt, Bits: 64, Unsigned: true}, nil
 		}
 
 		return ColumnType{RawType: strings.ToUpper(strings.TrimSpace(formattedType))}, nil
 	case "bytea":
-		return ColumnType{Kind: KindBytes}, nil
+		return ColumnType{Kind: ColumnKindBytes}, nil
 	case "character varying", "character":
-		desc := ColumnType{Kind: KindString}
+		desc := ColumnType{Kind: ColumnKindString}
 		if size.Valid && size.Int64 > 0 {
 			desc.Size = int(size.Int64)
 		}
@@ -438,7 +438,7 @@ func parsePostgresColumnType(dataType, udtName, formattedType string, size sql.N
 		// reconcile of columns declared as TEXT.
 		return ColumnType{RawType: "TEXT"}, nil
 	case "timestamp without time zone", "timestamp with time zone":
-		return ColumnType{Kind: KindTime}, nil
+		return ColumnType{Kind: ColumnKindTime}, nil
 	case "date":
 		// A DATE drops the time of day TSQ writes, so it is not a time column.
 		return ColumnType{RawType: "DATE"}, nil
@@ -446,21 +446,21 @@ func parsePostgresColumnType(dataType, udtName, formattedType string, size sql.N
 
 	switch udt {
 	case "bool":
-		return ColumnType{Kind: KindBool}, nil
+		return ColumnType{Kind: ColumnKindBool}, nil
 	case "bytea":
-		return ColumnType{Kind: KindBytes}, nil
+		return ColumnType{Kind: ColumnKindBytes}, nil
 	case "int2":
-		return ColumnType{Kind: KindInt, Bits: 16}, nil
+		return ColumnType{Kind: ColumnKindInt, Bits: 16}, nil
 	case "int4":
-		return ColumnType{Kind: KindInt, Bits: 32}, nil
+		return ColumnType{Kind: ColumnKindInt, Bits: 32}, nil
 	case "int8":
-		return ColumnType{Kind: KindInt, Bits: 64}, nil
+		return ColumnType{Kind: ColumnKindInt, Bits: 64}, nil
 	case "float4":
-		return ColumnType{Kind: KindFloat, Bits: 32}, nil
+		return ColumnType{Kind: ColumnKindFloat, Bits: 32}, nil
 	case "float8":
-		return ColumnType{Kind: KindFloat, Bits: 64}, nil
+		return ColumnType{Kind: ColumnKindFloat, Bits: 64}, nil
 	case "varchar":
-		desc := ColumnType{Kind: KindString}
+		desc := ColumnType{Kind: ColumnKindString}
 		if size.Valid && size.Int64 > 0 {
 			desc.Size = int(size.Int64)
 		}
@@ -469,7 +469,7 @@ func parsePostgresColumnType(dataType, udtName, formattedType string, size sql.N
 	case "text":
 		return ColumnType{RawType: "TEXT"}, nil
 	case "timestamp", "timestamptz", "date":
-		return ColumnType{Kind: KindTime}, nil
+		return ColumnType{Kind: ColumnKindTime}, nil
 	default:
 		rawType := strings.TrimSpace(formattedType)
 		if rawType == "" {
@@ -486,17 +486,17 @@ func (d PostgresDialect) ColumnTypeSQL(desc ColumnType) string {
 	}
 
 	switch desc.Kind {
-	case KindBool:
+	case ColumnKindBool:
 		return "BOOLEAN"
-	case KindBytes:
+	case ColumnKindBytes:
 		return "BYTEA"
-	case KindFloat:
+	case ColumnKindFloat:
 		if desc.Bits <= 32 {
 			return "REAL"
 		}
 
 		return "DOUBLE PRECISION"
-	case KindInt:
+	case ColumnKindInt:
 		// PostgreSQL has no unsigned integers: an unsigned type takes the next
 		// wider one, so its upper half fits, and uint64 a NUMERIC(20).
 		bits := desc.Bits
@@ -518,7 +518,7 @@ func (d PostgresDialect) ColumnTypeSQL(desc ColumnType) string {
 		default:
 			return "NUMERIC(20)"
 		}
-	case KindString:
+	case ColumnKindString:
 		switch {
 		case desc.Size <= 0:
 			return fmt.Sprintf("VARCHAR(%d)", defaultDDLStringSize)
@@ -528,7 +528,7 @@ func (d PostgresDialect) ColumnTypeSQL(desc ColumnType) string {
 		}
 
 		return fmt.Sprintf("VARCHAR(%d)", desc.Size)
-	case KindTime:
+	case ColumnKindTime:
 		return "TIMESTAMP"
 	default:
 		return "TEXT"
@@ -536,7 +536,7 @@ func (d PostgresDialect) ColumnTypeSQL(desc ColumnType) string {
 }
 
 func (d PostgresDialect) AutoIncrementColumnSQL(quotedColumn string, desc ColumnType) (string, error) {
-	if desc.Kind != KindInt {
+	if desc.Kind != ColumnKindInt {
 		return "", errors.New("auto-increment primary key requires an integer field")
 	}
 
@@ -685,7 +685,7 @@ func (d PostgresDialect) AlterColumnSQL(table string, before Column, after Colum
 	// MySQL's counter does. The other way round drops the generator, whichever
 	// kind it is (an identity, or a SERIAL's default; the sequence stays, owned
 	// by the column). A key that moves is a migration to write.
-	if before.PrimaryKey && after.PrimaryKey && before.AutoIncrement != after.AutoIncrement && after.Type.Kind == tsqdialect.KindInt && after.Type.RawType == "" {
+	if before.PrimaryKey && after.PrimaryKey && before.AutoIncrement != after.AutoIncrement && after.Type.Kind == tsqdialect.ColumnKindInt && after.Type.RawType == "" {
 		if after.AutoIncrement {
 			return append(statements,
 				fmt.Sprintf("ALTER TABLE %s ALTER COLUMN %s ADD GENERATED BY DEFAULT AS IDENTITY;", quotedTable, quotedColumn),
@@ -799,12 +799,12 @@ func postgresUsing(column string, before, after ColumnType, spelled string) stri
 		return "convert_to(" + column + ", 'UTF8')"
 	case postgresCharacterType(target):
 		return column + "::TEXT"
-	case plain && before.Kind == KindBool && after.Kind == KindInt:
+	case plain && before.Kind == ColumnKindBool && after.Kind == ColumnKindInt:
 		return column + "::INTEGER"
-	case plain && before.Kind == KindBool && after.Kind == KindFloat:
+	case plain && before.Kind == ColumnKindBool && after.Kind == ColumnKindFloat:
 		// No cast from BOOLEAN to a floating-point type, where INTEGER has both.
 		return column + "::INTEGER::" + spelled
-	case plain && (before.Kind == KindInt || before.Kind == KindFloat) && after.Kind == KindBool:
+	case plain && (before.Kind == ColumnKindInt || before.Kind == ColumnKindFloat) && after.Kind == ColumnKindBool:
 		return column + " <> 0"
 	default:
 		return column + "::" + spelled

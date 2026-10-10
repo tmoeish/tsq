@@ -56,7 +56,7 @@ func newCustomerTable() CustomerTable {
 			{
 				Name: "id",
 				Type: tsqdialect.ColumnType{
-					Kind: tsqdialect.KindInt,
+					Kind: tsqdialect.ColumnKindInt,
 					Bits: 64,
 				},
 				PrimaryKey:    true,
@@ -65,21 +65,21 @@ func newCustomerTable() CustomerTable {
 			{
 				Name: "created_at",
 				Type: tsqdialect.ColumnType{
-					Kind: tsqdialect.KindTime,
+					Kind: tsqdialect.ColumnKindTime,
 				},
 				Default: "CURRENT_TIMESTAMP",
 			},
 			{
 				Name: "email",
 				Type: tsqdialect.ColumnType{
-					Kind: tsqdialect.KindString,
+					Kind: tsqdialect.ColumnKindString,
 					Size: 128,
 				},
 			},
 			{
 				Name: "level",
 				Type: tsqdialect.ColumnType{
-					Kind:     tsqdialect.KindString,
+					Kind:     tsqdialect.ColumnKindString,
 					Nullable: true,
 					Size:     16,
 				},
@@ -89,14 +89,14 @@ func newCustomerTable() CustomerTable {
 			{
 				Name: "name",
 				Type: tsqdialect.ColumnType{
-					Kind: tsqdialect.KindString,
+					Kind: tsqdialect.ColumnKindString,
 					Size: 64,
 				},
 			},
 			{
 				Name: "phone",
 				Type: tsqdialect.ColumnType{
-					Kind:     tsqdialect.KindString,
+					Kind:     tsqdialect.ColumnKindString,
 					Nullable: true,
 					Size:     32,
 				},
@@ -117,12 +117,12 @@ func (t CustomerTable) As(alias string) CustomerTable {
 
 	return CustomerTable{
 		TableOf:   a,
-		ID:        t.ID.WithTable(a),
-		Email:     t.Email.WithTable(a),
-		Name:      t.Name.WithTable(a),
+		ID:        t.ID.Rebind(a),
+		Email:     t.Email.Rebind(a),
+		Name:      t.Name.Rebind(a),
 		Phone:     tsq.RebindNull(t.Phone, a),
 		Level:     tsq.RebindNull(t.Level, a),
-		CreatedAt: t.CreatedAt.WithTable(a),
+		CreatedAt: t.CreatedAt.Rebind(a),
 	}
 }
 

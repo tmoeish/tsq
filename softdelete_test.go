@@ -35,10 +35,10 @@ var Memos = memosHandle.Define(TableSpec[memo, int64]{
 	AutoIncrement: true,
 	CreatedAt:     Memo_CreatedAt,
 	ColumnSpecs: []tsqdialect.ColumnSpec{
-		{Name: "id", Type: tsqdialect.ColumnType{Kind: tsqdialect.KindInt, Bits: 64}, PrimaryKey: true, AutoIncrement: true},
-		{Name: "body", Type: tsqdialect.ColumnType{Kind: tsqdialect.KindString, Size: 64}},
-		{Name: "created_at", Type: tsqdialect.ColumnType{Kind: tsqdialect.KindTime}},
-		{Name: "deleted_at", Type: tsqdialect.ColumnType{Kind: tsqdialect.KindInt, Bits: 64}},
+		{Name: "id", Type: tsqdialect.ColumnType{Kind: tsqdialect.ColumnKindInt, Bits: 64}, PrimaryKey: true, AutoIncrement: true},
+		{Name: "body", Type: tsqdialect.ColumnType{Kind: tsqdialect.ColumnKindString, Size: 64}},
+		{Name: "created_at", Type: tsqdialect.ColumnType{Kind: tsqdialect.ColumnKindTime}},
+		{Name: "deleted_at", Type: tsqdialect.ColumnType{Kind: tsqdialect.ColumnKindInt, Bits: 64}},
 	},
 }, Memo_DeletedAt)
 
@@ -72,9 +72,9 @@ var tickets = func() ticketTable {
 		PrimaryKey:    c.ID,
 		AutoIncrement: true,
 		ColumnSpecs: []tsqdialect.ColumnSpec{
-			{Name: "id", Type: tsqdialect.ColumnType{Kind: tsqdialect.KindInt, Bits: 64}, PrimaryKey: true, AutoIncrement: true},
-			{Name: "body", Type: tsqdialect.ColumnType{Kind: tsqdialect.KindString, Size: 64}},
-			{Name: "deleted_at", Type: tsqdialect.ColumnType{Kind: tsqdialect.KindInt, Bits: 64}},
+			{Name: "id", Type: tsqdialect.ColumnType{Kind: tsqdialect.ColumnKindInt, Bits: 64}, PrimaryKey: true, AutoIncrement: true},
+			{Name: "body", Type: tsqdialect.ColumnType{Kind: tsqdialect.ColumnKindString, Size: 64}},
+			{Name: "deleted_at", Type: tsqdialect.ColumnType{Kind: tsqdialect.ColumnKindInt, Bits: 64}},
 		},
 	}, c.DeletedAt)
 

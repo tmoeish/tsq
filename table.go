@@ -511,7 +511,7 @@ func (t *TableOf[R, K]) withDeleted() *TableOf[R, K] {
 }
 
 // As returns the table under an alias, for joining it more than once. Its
-// Columns are bound to the alias; bind a single column with Column.WithTable.
+// Columns are bound to the alias; bind a single column with Column.Rebind.
 // An empty alias, or the table's own name, returns the table unaliased.
 func (t *TableOf[R, K]) As(alias string) *TableOf[R, K] {
 	// A zero table stays one: every use of it reports Err.
@@ -643,7 +643,7 @@ type cteTable struct {
 
 // CTE declares a non-recursive common table expression named name over a stage or
 // a built *Query. Columns of the query are referenced through it with
-// Column.WithTable.
+// Column.Rebind.
 func CTE[O any](name string, query Subquery[O]) Table {
 	name = strings.TrimSpace(name)
 

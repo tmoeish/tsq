@@ -25,50 +25,50 @@ func TestDDLColumnTypesEquivalent(t *testing.T) {
 		{
 			name:    "postgres declared char matches native character",
 			dialect: PostgresDialect{},
-			left:    Column{ColumnSpec: ColumnSpec{Type: ColumnType{Kind: KindString, Size: 10}}, NativeType: "character(10)"},
+			left:    Column{ColumnSpec: ColumnSpec{Type: ColumnType{Kind: ColumnKindString, Size: 10}}, NativeType: "character(10)"},
 			right:   ColumnSpec{Type: ColumnType{RawType: "CHAR(10)"}},
 			want:    true,
 		},
 		{
 			name:    "postgres declared numeric matches native numeric",
 			dialect: PostgresDialect{},
-			left:    Column{ColumnSpec: ColumnSpec{Type: ColumnType{Kind: KindFloat, Bits: 64}}, NativeType: "numeric(10,2)"},
+			left:    Column{ColumnSpec: ColumnSpec{Type: ColumnType{Kind: ColumnKindFloat, Bits: 64}}, NativeType: "numeric(10,2)"},
 			right:   ColumnSpec{Type: ColumnType{RawType: "DECIMAL(10, 2)"}},
 			want:    true,
 		},
 		{
 			name:    "mysql declared TEXT matches inspected text column",
 			dialect: MySQLDialect{},
-			left:    Column{ColumnSpec: ColumnSpec{Type: ColumnType{Kind: KindString, Size: mysqlMaxVarcharChars + 1}}, NativeType: "text"},
+			left:    Column{ColumnSpec: ColumnSpec{Type: ColumnType{Kind: ColumnKindString, Size: mysqlMaxVarcharChars + 1}}, NativeType: "text"},
 			right:   ColumnSpec{Type: ColumnType{RawType: "TEXT"}},
 			want:    true,
 		},
 		{
 			name:    "mysql declared DECIMAL matches inspected decimal column",
 			dialect: MySQLDialect{},
-			left:    Column{ColumnSpec: ColumnSpec{Type: ColumnType{Kind: KindFloat, Bits: 64}}, NativeType: "decimal(10,2)"},
+			left:    Column{ColumnSpec: ColumnSpec{Type: ColumnType{Kind: ColumnKindFloat, Bits: 64}}, NativeType: "decimal(10,2)"},
 			right:   ColumnSpec{Type: ColumnType{RawType: "DECIMAL(10,2)"}},
 			want:    true,
 		},
 		{
 			name:    "sqlite declared TEXT matches native TEXT",
 			dialect: SQLiteDialect{},
-			left:    Column{ColumnSpec: ColumnSpec{Type: ColumnType{Kind: KindString}}, NativeType: "TEXT"},
+			left:    Column{ColumnSpec: ColumnSpec{Type: ColumnType{Kind: ColumnKindString}}, NativeType: "TEXT"},
 			right:   ColumnSpec{Type: ColumnType{RawType: "TEXT"}},
 			want:    true,
 		},
 		{
 			name:    "nullability does not affect type equivalence",
 			dialect: PostgresDialect{},
-			left:    Column{ColumnSpec: ColumnSpec{Type: ColumnType{Kind: KindString, Size: 120, Nullable: true}}},
-			right:   ColumnSpec{Type: ColumnType{Kind: KindString, Size: 120}},
+			left:    Column{ColumnSpec: ColumnSpec{Type: ColumnType{Kind: ColumnKindString, Size: 120, Nullable: true}}},
+			right:   ColumnSpec{Type: ColumnType{Kind: ColumnKindString, Size: 120}},
 			want:    true,
 		},
 		{
 			name:    "different rendered types are not equivalent",
 			dialect: PostgresDialect{},
-			left:    Column{ColumnSpec: ColumnSpec{Type: ColumnType{Kind: KindInt, Bits: 64}}, NativeType: "bigint"},
-			right:   ColumnSpec{Type: ColumnType{Kind: KindString, Size: 255}},
+			left:    Column{ColumnSpec: ColumnSpec{Type: ColumnType{Kind: ColumnKindInt, Bits: 64}}, NativeType: "bigint"},
+			right:   ColumnSpec{Type: ColumnType{Kind: ColumnKindString, Size: 255}},
 			want:    false,
 		},
 		{
@@ -153,13 +153,13 @@ func TestMySQLDDLAlterColumnStatementsDoesNotRepeatPrimaryKey(t *testing.T) {
 	d := MySQLDialect{}
 	before := ColumnSpec{
 		Name:          "id",
-		Type:          ColumnType{Kind: KindInt, Bits: 32},
+		Type:          ColumnType{Kind: ColumnKindInt, Bits: 32},
 		PrimaryKey:    true,
 		AutoIncrement: true,
 	}
 	after := ColumnSpec{
 		Name:          "id",
-		Type:          ColumnType{Kind: KindInt, Bits: 64},
+		Type:          ColumnType{Kind: ColumnKindInt, Bits: 64},
 		PrimaryKey:    true,
 		AutoIncrement: true,
 	}
@@ -183,7 +183,7 @@ func TestMySQLDDLAlterColumnStatementsKeepsDefaultForRegularColumn(t *testing.T)
 	d := MySQLDialect{}
 	after := ColumnSpec{
 		Name:    "version",
-		Type:    ColumnType{Kind: KindInt, Bits: 64},
+		Type:    ColumnType{Kind: ColumnKindInt, Bits: 64},
 		Default: "1",
 	}
 
@@ -199,11 +199,11 @@ func TestPostgresDDLAlterColumnStatementsNullabilityOnlySkipsAlterType(t *testin
 	d := PostgresDialect{}
 	before := Column{
 		Name: "name",
-		Type: ColumnType{Kind: KindString, Size: 120, Nullable: true}, NativeType: "character varying(120)",
+		Type: ColumnType{Kind: ColumnKindString, Size: 120, Nullable: true}, NativeType: "character varying(120)",
 	}
 	after := ColumnSpec{
 		Name: "name",
-		Type: ColumnType{Kind: KindString, Size: 120},
+		Type: ColumnType{Kind: ColumnKindString, Size: 120},
 	}
 
 	// No ALTER TYPE; the rows holding NULL are filled before SET NOT NULL, which
@@ -227,22 +227,22 @@ func TestPostgresAlterColumnDoesNotTruncate(t *testing.T) {
 	d := PostgresDialect{}
 
 	shrink := d.AlterColumnSQL("t",
-		Column{Name: "name", Type: ColumnType{Kind: KindString, Size: 128}},
-		ColumnSpec{Name: "name", Type: ColumnType{Kind: KindString, Size: 8}})
+		Column{Name: "name", Type: ColumnType{Kind: ColumnKindString, Size: 128}},
+		ColumnSpec{Name: "name", Type: ColumnType{Kind: ColumnKindString, Size: 8}})
 	if len(shrink) != 1 || shrink[0] != `ALTER TABLE "t" ALTER COLUMN "name" TYPE VARCHAR(8);` {
 		t.Fatalf("shrink = %v; want no USING, so PostgreSQL refuses a value that does not fit", shrink)
 	}
 
 	kind := d.AlterColumnSQL("t",
-		Column{Name: "flag", Type: ColumnType{Kind: KindBool}},
-		ColumnSpec{Name: "flag", Type: ColumnType{Kind: KindInt, Bits: 32}})
+		Column{Name: "flag", Type: ColumnType{Kind: ColumnKindBool}},
+		ColumnSpec{Name: "flag", Type: ColumnType{Kind: ColumnKindInt, Bits: 32}})
 	if len(kind) != 1 || !strings.Contains(kind[0], `USING "flag"::INTEGER`) {
 		t.Fatalf("bool to int = %v; want USING, which has no assignment cast", kind)
 	}
 
 	stamped := d.AlterColumnSQL("t",
-		Column{Name: "seen_at", Type: ColumnType{Kind: KindTime, Nullable: true}},
-		ColumnSpec{Name: "seen_at", Type: ColumnType{Kind: KindTime}, Default: "CURRENT_TIMESTAMP"})
+		Column{Name: "seen_at", Type: ColumnType{Kind: ColumnKindTime, Nullable: true}},
+		ColumnSpec{Name: "seen_at", Type: ColumnType{Kind: ColumnKindTime}, Default: "CURRENT_TIMESTAMP"})
 	joined := strings.Join(stamped, " ")
 	if !strings.Contains(joined, "SET DEFAULT (CURRENT_TIMESTAMP AT TIME ZONE 'UTC')") || strings.Contains(joined, "SET DEFAULT CURRENT_TIMESTAMP;") {
 		t.Fatalf("stamped = %v; want the UTC default CREATE TABLE writes", stamped)
@@ -257,8 +257,8 @@ func TestPostgresAlterColumnDropsTheDefaultBeforeTheType(t *testing.T) {
 	d := PostgresDialect{}
 
 	retyped := d.AlterColumnSQL("t",
-		Column{Name: "flag", Type: ColumnType{Kind: KindString, Size: 40, Nullable: true}, Default: "'0'"},
-		ColumnSpec{Name: "flag", Type: ColumnType{Kind: KindBool, Nullable: true}, Default: "0"})
+		Column{Name: "flag", Type: ColumnType{Kind: ColumnKindString, Size: 40, Nullable: true}, Default: "'0'"},
+		ColumnSpec{Name: "flag", Type: ColumnType{Kind: ColumnKindBool, Nullable: true}, Default: "0"})
 	want := []string{
 		`ALTER TABLE "t" ALTER COLUMN "flag" DROP DEFAULT;`,
 		`ALTER TABLE "t" ALTER COLUMN "flag" TYPE BOOLEAN USING "flag"::BOOLEAN;`,
@@ -270,24 +270,24 @@ func TestPostgresAlterColumnDropsTheDefaultBeforeTheType(t *testing.T) {
 
 	// Dropped once: a default that goes with the change is not dropped twice.
 	gone := d.AlterColumnSQL("t",
-		Column{Name: "n", Type: ColumnType{Kind: KindInt, Bits: 64, Nullable: true}, Default: "5"},
-		ColumnSpec{Name: "n", Type: ColumnType{Kind: KindString, Size: 40, Nullable: true}})
+		Column{Name: "n", Type: ColumnType{Kind: ColumnKindInt, Bits: 64, Nullable: true}, Default: "5"},
+		ColumnSpec{Name: "n", Type: ColumnType{Kind: ColumnKindString, Size: 40, Nullable: true}})
 	if len(gone) != 2 || !strings.HasSuffix(gone[0], "DROP DEFAULT;") || !strings.Contains(gone[1], "USING") {
 		t.Fatalf("retyped without a default = %v; want one DROP DEFAULT, then the type", gone)
 	}
 
 	// A change within one kind casts the default on its own.
 	widened := d.AlterColumnSQL("t",
-		Column{Name: "s", Type: ColumnType{Kind: KindString, Size: 8, Nullable: true}, Default: "'x'"},
-		ColumnSpec{Name: "s", Type: ColumnType{Kind: KindString, Size: 80, Nullable: true}, Default: "'x'"})
+		Column{Name: "s", Type: ColumnType{Kind: ColumnKindString, Size: 8, Nullable: true}, Default: "'x'"},
+		ColumnSpec{Name: "s", Type: ColumnType{Kind: ColumnKindString, Size: 80, Nullable: true}, Default: "'x'"})
 	if len(widened) != 1 || !strings.Contains(widened[0], "TYPE VARCHAR(80);") {
 		t.Fatalf("widened = %v; want the type change alone", widened)
 	}
 
 	// BOOLEAN has a cast to INTEGER and none to a floating-point type.
 	fraction := d.AlterColumnSQL("t",
-		Column{Name: "flag", Type: ColumnType{Kind: KindBool}},
-		ColumnSpec{Name: "flag", Type: ColumnType{Kind: KindFloat, Bits: 64}})
+		Column{Name: "flag", Type: ColumnType{Kind: ColumnKindBool}},
+		ColumnSpec{Name: "flag", Type: ColumnType{Kind: ColumnKindFloat, Bits: 64}})
 	if len(fraction) != 1 || !strings.Contains(fraction[0], `USING "flag"::INTEGER::DOUBLE PRECISION`) {
 		t.Fatalf("bool to a fraction = %v; want a cast through INTEGER", fraction)
 	}
@@ -296,7 +296,7 @@ func TestPostgresAlterColumnDropsTheDefaultBeforeTheType(t *testing.T) {
 // TestBooleanDefaultsAreSpelledAsPostgresTakesThem covers default:1 and
 // default:0 on a bool field, which PostgreSQL refuses as "of type integer".
 func TestBooleanDefaultsAreSpelledAsPostgresTakesThem(t *testing.T) {
-	flag := ColumnSpec{Name: "flag", Type: ColumnType{Kind: KindBool, Nullable: true}}
+	flag := ColumnSpec{Name: "flag", Type: ColumnType{Kind: ColumnKindBool, Nullable: true}}
 
 	for declared, want := range map[string]map[Name]string{
 		"1":     {Postgres: "TRUE", MySQL: "1", SQLite: "1"},
@@ -325,14 +325,14 @@ func TestPostgresDDLAlterColumnStatementsKeepsAutoIncrementDefault(t *testing.T)
 	d := PostgresDialect{}
 	before := Column{
 		Name:          "id",
-		Type:          ColumnType{Kind: KindInt, Bits: 32},
+		Type:          ColumnType{Kind: ColumnKindInt, Bits: 32},
 		PrimaryKey:    true,
 		AutoIncrement: true,
 		Default:       "nextval('users_id_seq'::regclass)", NativeType: "integer",
 	}
 	after := ColumnSpec{
 		Name:          "id",
-		Type:          ColumnType{Kind: KindInt, Bits: 64},
+		Type:          ColumnType{Kind: ColumnKindInt, Bits: 64},
 		PrimaryKey:    true,
 		AutoIncrement: true,
 	}

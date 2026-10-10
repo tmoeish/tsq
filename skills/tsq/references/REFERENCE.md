@@ -858,7 +858,7 @@ total, err := tsq.SelectNullValue(tsq.Sum(database.TableOrder.Amount)).From(data
 
 `SelectValue` / `SelectNullValue` build ordinary queries: `Where`, `OrderBy`, `Page`, `List` and
 the rest work as usual, with the value as the row type, and a `SelectValue` stage is also a subquery
-of its values (see "Subqueries" in section 11). Only columns have `WithTable`, `Param` and `Bind`;
+of its values (see "Subqueries" in section 11). Only columns have `Rebind`, `Param` and `Bind`;
 rebind a column before applying functions to it.
 
 ### Nullable columns
@@ -873,7 +873,7 @@ Nickname: tsq.NewNullColumn[string](t, "nickname", "nickname",
 	func(r *User) *sql.NullString { return &r.Nickname }),
 ```
 
-- `col.WithTable(alias)` returns a `Column`; `tsq.RebindNull(col, alias)` keeps it a `NullColumn`
+- `col.Rebind(alias)` returns a `Column`; `tsq.RebindNull(col, alias)` keeps it a `NullColumn`
 
 - it compares with its value type like any column: `TableUser.Nickname.EQ(tsq.Val("ada"))`,
   `tsq.Upper(TableUser.Nickname)`, `tsq.Contains(TableUser.Nickname, tsq.Val("a"))`. NULL rows never match a
@@ -1200,7 +1200,7 @@ needsDeletedAtOrHardDeleteFrom`, and `tsq.HardDeleteFrom` is the statement to wr
 - a soft delete writes **only** `deleted_at`, `updated_at` and `version`; other fields changed on
   the row are not saved. It checks and increments the version, so a stale copy fails with
   `OptimisticLockError`, and it matches live rows only: deleting a row that is already deleted, or
-  restoring one that is not, fails with `*RowStateError` (match it with `errors.AsType[*tsq.RowStateError]`; its `Op` is a `tsq.TraceOp` and `Need` a `tsq.RowState`: `RowExists`, `RowLive` or `RowDeleted`) whether or not the
+  restoring one that is not, fails with `*RowStateError` (match it with `errors.AsType[*tsq.RowStateError]`; its `Op` is a `tsq.TraceOp` and `Need` a `tsq.RowState`: `RowExisting`, `RowLive` or `RowDeleted`) whether or not the
   table has a `version` column. That is not a concurrency conflict, so retrying it cannot help. The
   statement checks both at once; when it matches nothing TSQ reads the versions back to tell which
 - `Restore` / `BatchRestore` (and the generated `item.Restore(...)`) clear the tombstone of a
@@ -1435,7 +1435,7 @@ query := tsq.Select(database.TableUser.ID).
 A statement by condition (`UpdateTable`, `DeleteFrom`) writes the table itself and refuses an
 alias.
 
-`col.WithTable(source)` rebinds a column to any source that has a column of the same name, such as
+`col.Rebind(source)` rebinds a column to any source that has a column of the same name, such as
 a CTE. A derived expression cannot be rebound; rebind the column first, then apply functions.
 
 ### `MapInto(...)`
@@ -1464,7 +1464,7 @@ TSQ supports more than simple list queries. Common advanced shapes include:
 - `tsq.Coalesce(col, rhs)` and `tsq.NullIf(col, rhs)`, with `tsq.Val` for a fixed value
 - subqueries such as `In(subquery)`, `tsq.Exists(subquery)`, and typed RHS comparisons like `EQ(subquery)` or `tsq.Like(col, subquery)`. An `In` subquery may set `Limit` (it is written as a derived table, which MySQL requires). A subquery cannot use `Search`: the keyword is an argument of the statement that runs, so `Build()` refuses it instead of dropping the predicate
 - correlated subqueries, where the subquery declares the enclosing query's tables with `Correlate(...)`
-- non-recursive CTEs: `cte := tsq.CTE("big_orders", stage)`, then join `cte` and reference its columns with `col.WithTable(cte)` (all built-in dialects; MySQL baseline is 8.0). A CTE's columns are found by name, so its select list cannot name one column twice: `SUM(amount)` and `MAX(amount)` are both `amount`, and `Build()` refuses them. Whether `col.WithTable(cte)` can be NULL follows the CTE body, not the column: a nullable column the CTE coalesces reads into a plain field
+- non-recursive CTEs: `cte := tsq.CTE("big_orders", stage)`, then join `cte` and reference its columns with `col.Rebind(cte)` (all built-in dialects; MySQL baseline is 8.0). A CTE's columns are found by name, so its select list cannot name one column twice: `SUM(amount)` and `MAX(amount)` are both `amount`, and `Build()` refuses them. Whether `col.Rebind(cte)` can be NULL follows the CTE body, not the column: a nullable column the CTE coalesces reads into a plain field
 - `tsq.SelectDistinct(cols...)` for `SELECT DISTINCT` (its `Count()` counts distinct rows), and `tsq.CountDistinct(col)` for `COUNT(DISTINCT col)`
 - set operations such as `UNION`, `INTERSECT`, and `EXCEPT` (all built-in dialects; MySQL needs 8.0.31+). `IntersectAll` / `ExceptAll` run on MySQL and PostgreSQL; SQLite has no `ALL` form and returns `UnsupportedCapabilityError` (`dialect.CapabilityIntersectAll` / `CapabilityExceptAll`)
 - row-lock clauses such as `ForUpdate()` and `ForShare()`

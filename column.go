@@ -135,9 +135,9 @@ type Column[O, T any] interface {
 	Expression[T]
 	TypedColumn[O, T]
 
-	// WithTable returns the column rebound to another source with the same column,
+	// Rebind returns the column rebound to another source with the same column,
 	// such as a CTE or an alias of its table. A NullColumn stays a NullColumn.
-	WithTable(table Table) Column[O, T]
+	Rebind(table Table) Column[O, T]
 
 	// Param returns the column's own parameter, for queries that compare the column
 	// to a value supplied at execution. Every call returns the same parameter.
@@ -244,7 +244,7 @@ type NullColumn[O, T any] interface {
 	nullColumn()
 }
 
-// RebindNull is col.WithTable(table) for a NullColumn, keeping its type: WithTable
+// RebindNull is col.Rebind(table) for a NullColumn, keeping its type: Rebind
 // returns a Column, which cannot SetNull or read into a nullable field without a
 // type assertion.
 func RebindNull[O, T any](col NullColumn[O, T], table Table) NullColumn[O, T] {
@@ -252,7 +252,7 @@ func RebindNull[O, T any](col NullColumn[O, T], table Table) NullColumn[O, T] {
 		return nullColumnImpl[O, T]{columnImpl[O, T]{exprImpl[T]{c: &columnCore{info: exprInfo{err: errors.New("column cannot be nil")}}}}}
 	}
 
-	if rebound, ok := col.WithTable(table).(NullColumn[O, T]); ok {
+	if rebound, ok := col.Rebind(table).(NullColumn[O, T]); ok {
 		return rebound
 	}
 
@@ -438,13 +438,13 @@ func (c exprImpl[T]) derive(info exprInfo) *columnCore {
 	return &next
 }
 
-// WithTable rebinds the column to table.
-func (c columnImpl[O, T]) WithTable(table Table) Column[O, T] {
+// Rebind rebinds the column to table.
+func (c columnImpl[O, T]) Rebind(table Table) Column[O, T] {
 	return columnImpl[O, T]{exprImpl[T]{c: rebind(c.c, table)}}
 }
 
-// WithTable rebinds the column to table; the result is still a NullColumn.
-func (c nullColumnImpl[O, T]) WithTable(table Table) Column[O, T] {
+// Rebind rebinds the column to table; the result is still a NullColumn.
+func (c nullColumnImpl[O, T]) Rebind(table Table) Column[O, T] {
 	return nullColumnImpl[O, T]{columnImpl[O, T]{exprImpl[T]{c: rebind(c.c, table)}}}
 }
 

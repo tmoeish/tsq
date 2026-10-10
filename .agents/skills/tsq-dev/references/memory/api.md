@@ -65,6 +65,7 @@ v5 不背兼容，一次把名字改到"最合理"。定下的几条规则，每
   命名、值即 SQL 拼写（删掉别名表）；`WrapExecutor` 返回 error。**`ColumnSpecs()` / `Indexes()` 保持导出**：曾想收起，但集成测试和工具靠它改 schema。
 - Upsert 的冲突描述是值 `tsq.OnConflict(键...).Update(列...)`（2026-09-29 维护者定案），键和列按 R 定型。否决了做成
   `BatchOption`（R 被擦掉，别的表的列只能运行期报错）和另开 `UpsertOnly`（同一件事两种写法）。
+- 一个操作一个词根（2026-10-10 命名复查）：列换表叫 `Rebind`，`RebindNull` 同词根（曾是 `WithTable`：包级 `With*` 是选项的前缀，可空版没法叫 `WithTableNull`）；`dialect` 常量一律带类型全名前缀（`ColumnKindInt`，同 `CapabilityCTE` / `FillCaller`）；`RowState` 常量是和 `String()` 一致的形容词（`RowExisting`）；每个查询终端方法有自己的 `TraceOp`（`Exists` 曾报 `get`，tracer 分不出读行和探测）。
 - 方言类型不加 `DDL` 前缀。模板不许拼接常量名（`Kind{{ .Kind }}`）：符号门禁只认完整的 `tsqdialect.X`，
   拼出来的名字改名后照样"通过"，所以由 `columnKindRef` 显式列出。
 

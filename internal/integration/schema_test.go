@@ -130,11 +130,11 @@ func grownBeforeTable() *tsq.TableOf[grownBefore, int64] {
 		PrimaryKey:    id,
 		AutoIncrement: true,
 		ColumnSpecs: []tsqdialect.ColumnSpec{
-			{Name: "id", Type: tsqdialect.ColumnType{Kind: tsqdialect.KindInt, Bits: 64}, PrimaryKey: true, AutoIncrement: true},
-			{Name: "name", Type: tsqdialect.ColumnType{Kind: tsqdialect.KindString, Size: 40}},
-			{Name: "y", Type: tsqdialect.ColumnType{Kind: tsqdialect.KindInt, Bits: 64, Nullable: true}},
-			{Name: "yt", Type: tsqdialect.ColumnType{Kind: tsqdialect.KindTime, Nullable: true}},
-			{Name: "ys", Type: tsqdialect.ColumnType{Kind: tsqdialect.KindString, Size: 40, Nullable: true}},
+			{Name: "id", Type: tsqdialect.ColumnType{Kind: tsqdialect.ColumnKindInt, Bits: 64}, PrimaryKey: true, AutoIncrement: true},
+			{Name: "name", Type: tsqdialect.ColumnType{Kind: tsqdialect.ColumnKindString, Size: 40}},
+			{Name: "y", Type: tsqdialect.ColumnType{Kind: tsqdialect.ColumnKindInt, Bits: 64, Nullable: true}},
+			{Name: "yt", Type: tsqdialect.ColumnType{Kind: tsqdialect.ColumnKindTime, Nullable: true}},
+			{Name: "ys", Type: tsqdialect.ColumnType{Kind: tsqdialect.ColumnKindString, Size: 40, Nullable: true}},
 		},
 	})
 }
@@ -153,11 +153,11 @@ func grownAfterTable(change string) (*tsq.TableOf[grownAfter, int64], tsq.Column
 		tsq.NewNullColumn[string](h, "ys", "ys", func(r *grownAfter) *sql.Null[string] { return &r.YS }),
 	}
 	specs := []tsqdialect.ColumnSpec{
-		{Name: "id", Type: tsqdialect.ColumnType{Kind: tsqdialect.KindInt, Bits: 64}, PrimaryKey: true, AutoIncrement: true},
-		{Name: "name", Type: tsqdialect.ColumnType{Kind: tsqdialect.KindString, Size: 40}},
-		{Name: "y", Type: tsqdialect.ColumnType{Kind: tsqdialect.KindInt, Bits: 64, Nullable: true}},
-		{Name: "yt", Type: tsqdialect.ColumnType{Kind: tsqdialect.KindTime, Nullable: true}},
-		{Name: "ys", Type: tsqdialect.ColumnType{Kind: tsqdialect.KindString, Size: 40, Nullable: true}},
+		{Name: "id", Type: tsqdialect.ColumnType{Kind: tsqdialect.ColumnKindInt, Bits: 64}, PrimaryKey: true, AutoIncrement: true},
+		{Name: "name", Type: tsqdialect.ColumnType{Kind: tsqdialect.ColumnKindString, Size: 40}},
+		{Name: "y", Type: tsqdialect.ColumnType{Kind: tsqdialect.ColumnKindInt, Bits: 64, Nullable: true}},
+		{Name: "yt", Type: tsqdialect.ColumnType{Kind: tsqdialect.ColumnKindTime, Nullable: true}},
+		{Name: "ys", Type: tsqdialect.ColumnType{Kind: tsqdialect.ColumnKindString, Size: 40, Nullable: true}},
 	}
 
 	add := func(column tsq.BoundColumn[grownAfter], spec tsqdialect.ColumnSpec) {
@@ -168,25 +168,25 @@ func grownAfterTable(change string) (*tsq.TableOf[grownAfter, int64], tsq.Column
 	switch change {
 	case "add int":
 		add(tsq.NewColumn(h, "xi", "xi", func(r *grownAfter) *int32 { return &r.XI }),
-			tsqdialect.ColumnSpec{Name: "xi", Type: tsqdialect.ColumnType{Kind: tsqdialect.KindInt, Bits: 32}})
+			tsqdialect.ColumnSpec{Name: "xi", Type: tsqdialect.ColumnType{Kind: tsqdialect.ColumnKindInt, Bits: 32}})
 	case "add string":
 		add(tsq.NewColumn(h, "xs", "xs", func(r *grownAfter) *string { return &r.XS }),
-			tsqdialect.ColumnSpec{Name: "xs", Type: tsqdialect.ColumnType{Kind: tsqdialect.KindString, Size: 40}})
+			tsqdialect.ColumnSpec{Name: "xs", Type: tsqdialect.ColumnType{Kind: tsqdialect.ColumnKindString, Size: 40}})
 	case "add large string":
 		add(tsq.NewColumn(h, "xl", "xl", func(r *grownAfter) *string { return &r.XL }),
-			tsqdialect.ColumnSpec{Name: "xl", Type: tsqdialect.ColumnType{Kind: tsqdialect.KindString, Size: 100000}})
+			tsqdialect.ColumnSpec{Name: "xl", Type: tsqdialect.ColumnType{Kind: tsqdialect.ColumnKindString, Size: 100000}})
 	case "add time":
 		add(tsq.NewColumn(h, "xt", "xt", func(r *grownAfter) *time.Time { return &r.XT }),
-			tsqdialect.ColumnSpec{Name: "xt", Type: tsqdialect.ColumnType{Kind: tsqdialect.KindTime}})
+			tsqdialect.ColumnSpec{Name: "xt", Type: tsqdialect.ColumnType{Kind: tsqdialect.ColumnKindTime}})
 	case "add bytes":
 		add(tsq.NewColumn(h, "xb", "xb", func(r *grownAfter) *[]byte { return &r.XB }),
-			tsqdialect.ColumnSpec{Name: "xb", Type: tsqdialect.ColumnType{Kind: tsqdialect.KindBytes}})
+			tsqdialect.ColumnSpec{Name: "xb", Type: tsqdialect.ColumnType{Kind: tsqdialect.ColumnKindBytes}})
 	case "add float":
 		add(tsq.NewColumn(h, "xf", "xf", func(r *grownAfter) *float64 { return &r.XF }),
-			tsqdialect.ColumnSpec{Name: "xf", Type: tsqdialect.ColumnType{Kind: tsqdialect.KindFloat, Bits: 64}})
+			tsqdialect.ColumnSpec{Name: "xf", Type: tsqdialect.ColumnType{Kind: tsqdialect.ColumnKindFloat, Bits: 64}})
 	case "add bool":
 		add(tsq.NewColumn(h, "xbool", "xbool", func(r *grownAfter) *bool { return &r.XBool }),
-			tsqdialect.ColumnSpec{Name: "xbool", Type: tsqdialect.ColumnType{Kind: tsqdialect.KindBool}})
+			tsqdialect.ColumnSpec{Name: "xbool", Type: tsqdialect.ColumnType{Kind: tsqdialect.ColumnKindBool}})
 	case "tighten int":
 		specs[2].Type.Nullable = false
 	case "tighten time":
@@ -313,8 +313,8 @@ func TestIntegrationUnsignedAutoIncrementKeysAreStable(t *testing.T) {
 					PrimaryKey:    id,
 					AutoIncrement: true,
 					ColumnSpecs: []tsqdialect.ColumnSpec{
-						{Name: "id", Type: tsqdialect.ColumnType{Kind: tsqdialect.KindInt, Bits: bits, Unsigned: true}, PrimaryKey: true, AutoIncrement: true},
-						{Name: "note", Type: tsqdialect.ColumnType{Kind: tsqdialect.KindString, Size: 20}},
+						{Name: "id", Type: tsqdialect.ColumnType{Kind: tsqdialect.ColumnKindInt, Bits: bits, Unsigned: true}, PrimaryKey: true, AutoIncrement: true},
+						{Name: "note", Type: tsqdialect.ColumnType{Kind: tsqdialect.ColumnKindString, Size: 20}},
 					},
 				})
 
@@ -371,7 +371,7 @@ func driftingTable(columnType tsqdialect.ColumnType, defaultSQL string) *tsq.Tab
 		PrimaryKey:    id,
 		AutoIncrement: true,
 		ColumnSpecs: []tsqdialect.ColumnSpec{
-			{Name: "id", Type: tsqdialect.ColumnType{Kind: tsqdialect.KindInt, Bits: 64}, PrimaryKey: true, AutoIncrement: true},
+			{Name: "id", Type: tsqdialect.ColumnType{Kind: tsqdialect.ColumnKindInt, Bits: 64}, PrimaryKey: true, AutoIncrement: true},
 			spec,
 		},
 	})
@@ -388,10 +388,10 @@ type driftCase struct {
 // driftCases lists the columns each engine reports in a spelling of its own.
 func driftCases() []driftCase {
 	text := func(size int) tsqdialect.ColumnType {
-		return tsqdialect.ColumnType{Kind: tsqdialect.KindString, Size: size}
+		return tsqdialect.ColumnType{Kind: tsqdialect.ColumnKindString, Size: size}
 	}
 	raw := func(spelled string) tsqdialect.ColumnType { return tsqdialect.ColumnType{RawType: spelled} }
-	integer := tsqdialect.ColumnType{Kind: tsqdialect.KindInt, Bits: 64}
+	integer := tsqdialect.ColumnType{Kind: tsqdialect.ColumnKindInt, Bits: 64}
 
 	return []driftCase{
 		{"default in parentheses", text(40), "'(none)'", ""},
@@ -399,11 +399,11 @@ func driftCases() []driftCase {
 		{"default with padding", text(40), "'  pad  '", ""},
 		{"default with a quote", text(40), "'it''s'", ""},
 		{"default that reads like a keyword", text(40), "'CURRENT_TIMESTAMP'", ""},
-		{"time literal default", tsqdialect.ColumnType{Kind: tsqdialect.KindTime}, "'2020-01-02 03:04:05'", ""},
+		{"time literal default", tsqdialect.ColumnType{Kind: tsqdialect.ColumnKindTime}, "'2020-01-02 03:04:05'", ""},
 		// PostgreSQL takes TRUE and FALSE only; the other two take either spelling.
-		{"boolean default as a number", tsqdialect.ColumnType{Kind: tsqdialect.KindBool}, "1", ""},
-		{"boolean default as zero", tsqdialect.ColumnType{Kind: tsqdialect.KindBool}, "0", ""},
-		{"boolean default as a word", tsqdialect.ColumnType{Kind: tsqdialect.KindBool}, "TRUE", ""},
+		{"boolean default as a number", tsqdialect.ColumnType{Kind: tsqdialect.ColumnKindBool}, "1", ""},
+		{"boolean default as zero", tsqdialect.ColumnType{Kind: tsqdialect.ColumnKindBool}, "0", ""},
+		{"boolean default as a word", tsqdialect.ColumnType{Kind: tsqdialect.ColumnKindBool}, "TRUE", ""},
 		{"string longer than a VARCHAR", text(20000000), "", ""},
 		{"DECIMAL(10,2) default", raw("DECIMAL(10,2)"), "1.50", ""},
 		{"DECIMAL", raw("DECIMAL"), "", ""},
@@ -446,15 +446,15 @@ func driftCases() []driftCase {
 		{"function default", raw("INTEGER"), "(abs(-1))", ""},
 		{"function default over text", raw("TEXT"), "(lower('X'))", "postgres,sqlite"},
 		{"signed default", integer, "+5", "postgres,sqlite"},
-		{"time default with a zone", tsqdialect.ColumnType{Kind: tsqdialect.KindTime}, "'2020-01-02T03:04:05Z'", "postgres"},
-		{"empty bytes default", tsqdialect.ColumnType{Kind: tsqdialect.KindBytes}, "''", "postgres,sqlite"},
+		{"time default with a zone", tsqdialect.ColumnType{Kind: tsqdialect.ColumnKindTime}, "'2020-01-02T03:04:05Z'", "postgres"},
+		{"empty bytes default", tsqdialect.ColumnType{Kind: tsqdialect.ColumnKindBytes}, "''", "postgres,sqlite"},
 		// MySQL describes a kept table from its dictionary and a temporary one from
 		// memory, and the two spell these defaults differently: the probe compares
 		// two temporary tables, the declaration and the live column.
 		{"VARBINARY literal default", raw("VARBINARY(8)"), "'ab'", "mysql"},
 		{"VARBINARY hex default", raw("VARBINARY(8)"), "X'6162'", "mysql"},
 		{"BINARY literal default", raw("BINARY(4)"), "'ab'", "mysql"},
-		{"bytes hex default", tsqdialect.ColumnType{Kind: tsqdialect.KindBytes}, "X'00'", "mysql,sqlite"},
+		{"bytes hex default", tsqdialect.ColumnType{Kind: tsqdialect.ColumnKindBytes}, "X'00'", "mysql,sqlite"},
 		{"default with a four-byte character", text(40), "'ok \U0001F600'", ""},
 		// A SERIAL off the key draws from a sequence named after its own table.
 		{"SERIAL off the key", raw("SERIAL"), "", "postgres"},
@@ -513,7 +513,7 @@ func declaredColumnDoesNotDrift(t *testing.T, target integrationTarget, c driftC
 // without a word. The change must fail and leave the rows as they were.
 func TestIntegrationRetypeRefusesAValueThatDoesNotFit(t *testing.T) {
 	text := func(size int) tsqdialect.ColumnType {
-		return tsqdialect.ColumnType{Kind: tsqdialect.KindString, Size: size}
+		return tsqdialect.ColumnType{Kind: tsqdialect.ColumnKindString, Size: size}
 	}
 
 	for _, target := range integrationTargets(t) {
@@ -525,12 +525,12 @@ func TestIntegrationRetypeRefusesAValueThatDoesNotFit(t *testing.T) {
 		}{
 			{"TEXT to a short string", tsqdialect.ColumnType{RawType: "TEXT"}, text(5), "'abcdefghij'", false},
 			{"string to CHAR(3)", text(40), tsqdialect.ColumnType{RawType: "CHAR(3)"}, "'abcdefghij'", false},
-			{"integer to a short string", tsqdialect.ColumnType{Kind: tsqdialect.KindInt, Bits: 64}, text(1), "12345", false},
-			{"time to a short string", tsqdialect.ColumnType{Kind: tsqdialect.KindTime}, text(10), "'2020-01-02 03:04:05'", false},
-			{"text to an integer", text(40), tsqdialect.ColumnType{Kind: tsqdialect.KindInt, Bits: 64}, "'Hello'", true},
-			{"text to a number", text(40), tsqdialect.ColumnType{Kind: tsqdialect.KindFloat, Bits: 64}, "'Hello'", true},
-			{"text to a time", text(40), tsqdialect.ColumnType{Kind: tsqdialect.KindTime}, "'Hello'", true},
-			{"text to a boolean", text(40), tsqdialect.ColumnType{Kind: tsqdialect.KindBool}, "'Hello'", true},
+			{"integer to a short string", tsqdialect.ColumnType{Kind: tsqdialect.ColumnKindInt, Bits: 64}, text(1), "12345", false},
+			{"time to a short string", tsqdialect.ColumnType{Kind: tsqdialect.ColumnKindTime}, text(10), "'2020-01-02 03:04:05'", false},
+			{"text to an integer", text(40), tsqdialect.ColumnType{Kind: tsqdialect.ColumnKindInt, Bits: 64}, "'Hello'", true},
+			{"text to a number", text(40), tsqdialect.ColumnType{Kind: tsqdialect.ColumnKindFloat, Bits: 64}, "'Hello'", true},
+			{"text to a time", text(40), tsqdialect.ColumnType{Kind: tsqdialect.ColumnKindTime}, "'Hello'", true},
+			{"text to a boolean", text(40), tsqdialect.ColumnType{Kind: tsqdialect.ColumnKindBool}, "'Hello'", true},
 		} {
 			if target.name == "sqlite" && !c.sqlite {
 				continue
@@ -589,14 +589,14 @@ func dupTable(withExtra, withIndex bool) *tsq.TableOf[dupRow, int64] {
 	note := tsq.NewNullColumn[string](t, "note", "note", func(r *dupRow) **string { return &r.Note })
 	columns := []tsq.BoundColumn[dupRow]{id, code, note}
 	specs := []tsqdialect.ColumnSpec{
-		{Name: "id", Type: tsqdialect.ColumnType{Kind: tsqdialect.KindInt, Bits: 64}, PrimaryKey: true, AutoIncrement: true},
-		{Name: "code", Type: tsqdialect.ColumnType{Kind: tsqdialect.KindString, Size: 20}},
-		{Name: "note", Type: tsqdialect.ColumnType{Kind: tsqdialect.KindString, Size: 20, Nullable: true}},
+		{Name: "id", Type: tsqdialect.ColumnType{Kind: tsqdialect.ColumnKindInt, Bits: 64}, PrimaryKey: true, AutoIncrement: true},
+		{Name: "code", Type: tsqdialect.ColumnType{Kind: tsqdialect.ColumnKindString, Size: 20}},
+		{Name: "note", Type: tsqdialect.ColumnType{Kind: tsqdialect.ColumnKindString, Size: 20, Nullable: true}},
 	}
 
 	if withExtra {
 		columns = append(columns, tsq.NewColumn(t, "extra", "extra", func(r *dupRow) *int64 { return &r.Extra }))
-		specs = append(specs, tsqdialect.ColumnSpec{Name: "extra", Type: tsqdialect.ColumnType{Kind: tsqdialect.KindInt, Bits: 64}})
+		specs = append(specs, tsqdialect.ColumnSpec{Name: "extra", Type: tsqdialect.ColumnType{Kind: tsqdialect.ColumnKindInt, Bits: 64}})
 	}
 
 	var indexes []tsq.IndexSpec
@@ -732,7 +732,7 @@ func TestIntegrationAnAlterKeepsTheColumnsOwnAttributes(t *testing.T) {
 		t.Run(target.name, func(t *testing.T) {
 			dropTables(t, target, "drifting")
 
-			narrow := driftingTable(tsqdialect.ColumnType{Kind: tsqdialect.KindString, Size: 20}, "")
+			narrow := driftingTable(tsqdialect.ColumnType{Kind: tsqdialect.ColumnKindString, Size: 20}, "")
 
 			rt, _, err := openQuietly(target, tsq.SchemaPolicyCreateMissing, narrow)
 			if err != nil {
@@ -752,7 +752,7 @@ func TestIntegrationAnAlterKeepsTheColumnsOwnAttributes(t *testing.T) {
 
 			// SQLite enforces no VARCHAR length, so the widening is nothing to run
 			// there; the rebuild comes from the column becoming nullable.
-			wider := tsqdialect.ColumnType{Kind: tsqdialect.KindString, Size: 40}
+			wider := tsqdialect.ColumnType{Kind: tsqdialect.ColumnKindString, Size: 40}
 
 			switch target.name {
 			case "mysql":
@@ -830,7 +830,7 @@ func TestIntegrationReconcileSaysWhatARenamedFieldLoses(t *testing.T) {
 		t.Run(target.name, func(t *testing.T) {
 			dropTables(t, target, "drifting")
 
-			text := tsqdialect.ColumnType{Kind: tsqdialect.KindString, Size: 40}
+			text := tsqdialect.ColumnType{Kind: tsqdialect.ColumnKindString, Size: 40}
 
 			rt, _, err := openQuietly(target, tsq.SchemaPolicyCreateMissing, driftingTable(text, ""))
 			if err != nil {
@@ -847,7 +847,7 @@ func TestIntegrationReconcileSaysWhatARenamedFieldLoses(t *testing.T) {
 			renamed.Define(tsq.TableSpec[drifting, int64]{
 				Columns: []tsq.BoundColumn[drifting]{id, d}, PrimaryKey: id, AutoIncrement: true,
 				ColumnSpecs: []tsqdialect.ColumnSpec{
-					{Name: "id", Type: tsqdialect.ColumnType{Kind: tsqdialect.KindInt, Bits: 64}, PrimaryKey: true, AutoIncrement: true},
+					{Name: "id", Type: tsqdialect.ColumnType{Kind: tsqdialect.ColumnKindInt, Bits: 64}, PrimaryKey: true, AutoIncrement: true},
 					{Name: "d", Type: text},
 				},
 			})
@@ -876,8 +876,8 @@ func TestIntegrationReconcileSaysWhatARenamedFieldLoses(t *testing.T) {
 // the column it covers is altered.
 func TestIntegrationAnIndexInTheWayGoesFirst(t *testing.T) {
 	ctx := context.Background()
-	text := tsqdialect.ColumnType{Kind: tsqdialect.KindString, Size: 40}
-	bytes := tsqdialect.ColumnType{Kind: tsqdialect.KindBytes}
+	text := tsqdialect.ColumnType{Kind: tsqdialect.ColumnKindString, Size: 40}
+	bytes := tsqdialect.ColumnType{Kind: tsqdialect.ColumnKindBytes}
 
 	declare := func(columnType tsqdialect.ColumnType, indexes ...tsq.IndexSpec) *tsq.TableOf[drifting, int64] {
 		h := tsq.NewTable[drifting, int64]("drifting")
@@ -888,7 +888,7 @@ func TestIntegrationAnIndexInTheWayGoesFirst(t *testing.T) {
 			PrimaryKey:    id,
 			AutoIncrement: true,
 			ColumnSpecs: []tsqdialect.ColumnSpec{
-				{Name: "id", Type: tsqdialect.ColumnType{Kind: tsqdialect.KindInt, Bits: 64}, PrimaryKey: true, AutoIncrement: true},
+				{Name: "id", Type: tsqdialect.ColumnType{Kind: tsqdialect.ColumnKindInt, Bits: 64}, PrimaryKey: true, AutoIncrement: true},
 				{Name: "c", Type: columnType},
 			},
 			Indexes: indexes,
@@ -964,11 +964,11 @@ func TestIntegrationAnIndexInTheWayGoesFirst(t *testing.T) {
 }
 
 func TestIntegrationRetypeCarriesTheValues(t *testing.T) {
-	text := tsqdialect.ColumnType{Kind: tsqdialect.KindString, Size: 40}
-	bytes := tsqdialect.ColumnType{Kind: tsqdialect.KindBytes}
-	integer := tsqdialect.ColumnType{Kind: tsqdialect.KindInt, Bits: 64}
-	number := tsqdialect.ColumnType{Kind: tsqdialect.KindFloat, Bits: 64}
-	boolean := tsqdialect.ColumnType{Kind: tsqdialect.KindBool}
+	text := tsqdialect.ColumnType{Kind: tsqdialect.ColumnKindString, Size: 40}
+	bytes := tsqdialect.ColumnType{Kind: tsqdialect.ColumnKindBytes}
+	integer := tsqdialect.ColumnType{Kind: tsqdialect.ColumnKindInt, Bits: 64}
+	number := tsqdialect.ColumnType{Kind: tsqdialect.ColumnKindFloat, Bits: 64}
+	boolean := tsqdialect.ColumnType{Kind: tsqdialect.ColumnKindBool}
 
 	for _, target := range integrationTargets(t) {
 		for _, c := range []struct {
@@ -989,8 +989,8 @@ func TestIntegrationRetypeCarriesTheValues(t *testing.T) {
 			// The range constraint of an unsigned field is read against the new
 			// type on PostgreSQL ("operator does not exist: character varying >=
 			// integer") unless it goes first.
-			{"unsigned to text", tsqdialect.ColumnType{Kind: tsqdialect.KindInt, Bits: 8, Unsigned: true}, text, []any{int64(7), int64(200)}, "7,200", [2]string{}},
-			{"unsigned to a wider unsigned", tsqdialect.ColumnType{Kind: tsqdialect.KindInt, Bits: 8, Unsigned: true}, tsqdialect.ColumnType{Kind: tsqdialect.KindInt, Bits: 32, Unsigned: true}, []any{int64(7), int64(200)}, "7,200", [2]string{}},
+			{"unsigned to text", tsqdialect.ColumnType{Kind: tsqdialect.ColumnKindInt, Bits: 8, Unsigned: true}, text, []any{int64(7), int64(200)}, "7,200", [2]string{}},
+			{"unsigned to a wider unsigned", tsqdialect.ColumnType{Kind: tsqdialect.ColumnKindInt, Bits: 8, Unsigned: true}, tsqdialect.ColumnType{Kind: tsqdialect.ColumnKindInt, Bits: 32, Unsigned: true}, []any{int64(7), int64(200)}, "7,200", [2]string{}},
 			// A default of the old type goes before the change on PostgreSQL, which
 			// casts it on its own and refused the change ("default for column
 			// cannot be cast automatically to type boolean").
@@ -1029,7 +1029,7 @@ func TestIntegrationRetypeCarriesTheValues(t *testing.T) {
 				got := columnValues(t, target, "drifting", "c")
 				for i, value := range got {
 					// A boolean reads as true/false on PostgreSQL and 1/0 elsewhere.
-					if c.to.Kind == tsqdialect.KindBool {
+					if c.to.Kind == tsqdialect.ColumnKindBool {
 						got[i] = map[string]string{"1": "true", "0": "false"}[value]
 						if got[i] == "" {
 							got[i] = value
@@ -1062,8 +1062,8 @@ func TestIntegrationRetypeCarriesTheValues(t *testing.T) {
 // once, however the engine spells either.
 func TestIntegrationAChangedColumnIsStillAChange(t *testing.T) {
 	raw := func(spelled string) tsqdialect.ColumnType { return tsqdialect.ColumnType{RawType: spelled} }
-	integer := tsqdialect.ColumnType{Kind: tsqdialect.KindInt, Bits: 64}
-	text := tsqdialect.ColumnType{Kind: tsqdialect.KindString, Size: 40}
+	integer := tsqdialect.ColumnType{Kind: tsqdialect.ColumnKindInt, Bits: 64}
+	text := tsqdialect.ColumnType{Kind: tsqdialect.ColumnKindString, Size: 40}
 
 	for _, target := range integrationTargets(t) {
 		for _, c := range []struct {
@@ -1149,12 +1149,12 @@ func sluggedTable(generated string) *tsq.TableOf[slugged, int64] {
 
 	columns := []tsq.BoundColumn[slugged]{id, tsq.NewColumn(h, "title", "title", func(r *slugged) *string { return &r.Title })}
 	specs := []tsqdialect.ColumnSpec{
-		{Name: "id", Type: tsqdialect.ColumnType{Kind: tsqdialect.KindInt, Bits: 64}, PrimaryKey: true, AutoIncrement: true},
-		{Name: "title", Type: tsqdialect.ColumnType{Kind: tsqdialect.KindString, Size: 40}},
+		{Name: "id", Type: tsqdialect.ColumnType{Kind: tsqdialect.ColumnKindInt, Bits: 64}, PrimaryKey: true, AutoIncrement: true},
+		{Name: "title", Type: tsqdialect.ColumnType{Kind: tsqdialect.ColumnKindString, Size: 40}},
 	}
 
 	if generated != "" {
-		spec := tsqdialect.ColumnSpec{Name: "slug", Type: tsqdialect.ColumnType{Kind: tsqdialect.KindString, Size: 40}, Fill: tsqdialect.FillGenerated}
+		spec := tsqdialect.ColumnSpec{Name: "slug", Type: tsqdialect.ColumnType{Kind: tsqdialect.ColumnKindString, Size: 40}, Fill: tsqdialect.FillGenerated}
 		if generated != "-" {
 			spec.Generated = generated
 		}
@@ -1355,7 +1355,7 @@ func indexedTable(indexes ...tsq.IndexSpec) *tsq.TableOf[indexed, int64] {
 	h := tsq.NewTable[indexed, int64]("indexed")
 	id := tsq.NewColumn(h, "id", "id", func(r *indexed) *int64 { return &r.ID })
 	text := func(name string, size int) tsqdialect.ColumnSpec {
-		return tsqdialect.ColumnSpec{Name: name, Type: tsqdialect.ColumnType{Kind: tsqdialect.KindString, Size: size}}
+		return tsqdialect.ColumnSpec{Name: name, Type: tsqdialect.ColumnType{Kind: tsqdialect.ColumnKindString, Size: size}}
 	}
 
 	return h.Define(tsq.TableSpec[indexed, int64]{
@@ -1368,7 +1368,7 @@ func indexedTable(indexes ...tsq.IndexSpec) *tsq.TableOf[indexed, int64] {
 		PrimaryKey:    id,
 		AutoIncrement: true,
 		ColumnSpecs: []tsqdialect.ColumnSpec{
-			{Name: "id", Type: tsqdialect.ColumnType{Kind: tsqdialect.KindInt, Bits: 64}, PrimaryKey: true, AutoIncrement: true},
+			{Name: "id", Type: tsqdialect.ColumnType{Kind: tsqdialect.ColumnKindInt, Bits: 64}, PrimaryKey: true, AutoIncrement: true},
 			text("a", 40), text("b", 40), text("body", 400),
 		},
 		Indexes: indexes,
@@ -1589,7 +1589,7 @@ func TestIntegrationMySQLSessionModes(t *testing.T) {
 
 	ctx := context.Background()
 	loose := under("")
-	short := tsqdialect.ColumnType{Kind: tsqdialect.KindString, Size: 5}
+	short := tsqdialect.ColumnType{Kind: tsqdialect.ColumnKindString, Size: 5}
 
 	t.Run("a change of type that cuts a value is refused outside strict mode", func(t *testing.T) {
 		dropTables(t, loose, "drifting")
@@ -1693,11 +1693,11 @@ var rangedCols = func() rangedTable {
 		PrimaryKey:    t.ID,
 		AutoIncrement: true,
 		ColumnSpecs: []tsqdialect.ColumnSpec{
-			{Name: "id", Type: tsqdialect.ColumnType{Kind: tsqdialect.KindInt, Bits: 64}, PrimaryKey: true, AutoIncrement: true},
-			{Name: "qty", Type: tsqdialect.ColumnType{Kind: tsqdialect.KindInt, Bits: 32, Unsigned: true}},
-			{Name: "small", Type: tsqdialect.ColumnType{Kind: tsqdialect.KindInt, Bits: 16}},
-			{Name: "big", Type: tsqdialect.ColumnType{Kind: tsqdialect.KindInt, Bits: 64, Unsigned: true}},
-			{Name: "plain", Type: tsqdialect.ColumnType{Kind: tsqdialect.KindInt, Bits: 64}},
+			{Name: "id", Type: tsqdialect.ColumnType{Kind: tsqdialect.ColumnKindInt, Bits: 64}, PrimaryKey: true, AutoIncrement: true},
+			{Name: "qty", Type: tsqdialect.ColumnType{Kind: tsqdialect.ColumnKindInt, Bits: 32, Unsigned: true}},
+			{Name: "small", Type: tsqdialect.ColumnType{Kind: tsqdialect.ColumnKindInt, Bits: 16}},
+			{Name: "big", Type: tsqdialect.ColumnType{Kind: tsqdialect.ColumnKindInt, Bits: 64, Unsigned: true}},
+			{Name: "plain", Type: tsqdialect.ColumnType{Kind: tsqdialect.ColumnKindInt, Bits: 64}},
 		},
 	})
 
@@ -1925,9 +1925,9 @@ func assignedDupTable() *tsq.TableOf[dupRow, int64] {
 	code := tsq.NewColumn(t, "code", "code", func(r *dupRow) *string { return &r.Code })
 	note := tsq.NewNullColumn[string](t, "note", "note", func(r *dupRow) **string { return &r.Note })
 	specs := []tsqdialect.ColumnSpec{
-		{Name: "id", Type: tsqdialect.ColumnType{Kind: tsqdialect.KindInt, Bits: 64}, PrimaryKey: true},
-		{Name: "code", Type: tsqdialect.ColumnType{Kind: tsqdialect.KindString, Size: 20}},
-		{Name: "note", Type: tsqdialect.ColumnType{Kind: tsqdialect.KindString, Size: 20, Nullable: true}},
+		{Name: "id", Type: tsqdialect.ColumnType{Kind: tsqdialect.ColumnKindInt, Bits: 64}, PrimaryKey: true},
+		{Name: "code", Type: tsqdialect.ColumnType{Kind: tsqdialect.ColumnKindString, Size: 20}},
+		{Name: "note", Type: tsqdialect.ColumnType{Kind: tsqdialect.ColumnKindString, Size: 20, Nullable: true}},
 	}
 
 	return t.Define(tsq.TableSpec[dupRow, int64]{Columns: []tsq.BoundColumn[dupRow]{id, code, note}, PrimaryKey: id, ColumnSpecs: specs})
@@ -1991,11 +1991,11 @@ func stampTable(asTime bool) *tsq.TableOf[stampRow, int64] {
 	t := tsq.NewTable[stampRow, int64]("stamped")
 	id := tsq.NewColumn(t, "id", "id", func(r *stampRow) *int64 { return &r.ID })
 	stamp := tsq.NewNullColumn[string](t, "stamp", "stamp", func(r *stampRow) **string { return &r.Stamp })
-	spec := tsqdialect.ColumnSpec{Name: "stamp", Type: tsqdialect.ColumnType{Kind: tsqdialect.KindString, Size: 20, Nullable: true}, Default: "'x'", Fill: tsqdialect.FillDefault}
+	spec := tsqdialect.ColumnSpec{Name: "stamp", Type: tsqdialect.ColumnType{Kind: tsqdialect.ColumnKindString, Size: 20, Nullable: true}, Default: "'x'", Fill: tsqdialect.FillDefault}
 
 	var indexes []tsq.IndexSpec
 	if asTime {
-		spec = tsqdialect.ColumnSpec{Name: "stamp", Type: tsqdialect.ColumnType{Kind: tsqdialect.KindTime, Nullable: true}}
+		spec = tsqdialect.ColumnSpec{Name: "stamp", Type: tsqdialect.ColumnType{Kind: tsqdialect.ColumnKindTime, Nullable: true}}
 	} else {
 		indexes = []tsq.IndexSpec{{Name: "idx_stamped_stamp", Columns: []string{"stamp"}}}
 	}
@@ -2004,7 +2004,7 @@ func stampTable(asTime bool) *tsq.TableOf[stampRow, int64] {
 		Columns:    []tsq.BoundColumn[stampRow]{id, stamp},
 		PrimaryKey: id, AutoIncrement: true,
 		ColumnSpecs: []tsqdialect.ColumnSpec{
-			{Name: "id", Type: tsqdialect.ColumnType{Kind: tsqdialect.KindInt, Bits: 64}, PrimaryKey: true, AutoIncrement: true},
+			{Name: "id", Type: tsqdialect.ColumnType{Kind: tsqdialect.ColumnKindInt, Bits: 64}, PrimaryKey: true, AutoIncrement: true},
 			spec,
 		},
 		Indexes: indexes,
@@ -2077,14 +2077,14 @@ type flagRow struct {
 func flagTable(asBool bool) *tsq.TableOf[flagRow, int64] {
 	t := tsq.NewTable[flagRow, int64]("flagged")
 	id := tsq.NewColumn(t, "id", "id", func(r *flagRow) *int64 { return &r.ID })
-	idSpec := tsqdialect.ColumnSpec{Name: "id", Type: tsqdialect.ColumnType{Kind: tsqdialect.KindInt, Bits: 64}, PrimaryKey: true, AutoIncrement: true}
+	idSpec := tsqdialect.ColumnSpec{Name: "id", Type: tsqdialect.ColumnType{Kind: tsqdialect.ColumnKindInt, Bits: 64}, PrimaryKey: true, AutoIncrement: true}
 
 	if asBool {
 		flag := tsq.NewColumn(t, "flag", "flag", func(r *flagRow) *bool { return &r.Flag })
 
 		return t.Define(tsq.TableSpec[flagRow, int64]{
 			Columns: []tsq.BoundColumn[flagRow]{id, flag}, PrimaryKey: id, AutoIncrement: true,
-			ColumnSpecs: []tsqdialect.ColumnSpec{idSpec, {Name: "flag", Type: tsqdialect.ColumnType{Kind: tsqdialect.KindBool}}},
+			ColumnSpecs: []tsqdialect.ColumnSpec{idSpec, {Name: "flag", Type: tsqdialect.ColumnType{Kind: tsqdialect.ColumnKindBool}}},
 			Indexes:     []tsq.IndexSpec{{Name: "ux_flagged_flag", Columns: []string{"flag"}, Unique: true}},
 		})
 	}
@@ -2093,7 +2093,7 @@ func flagTable(asBool bool) *tsq.TableOf[flagRow, int64] {
 
 	return t.Define(tsq.TableSpec[flagRow, int64]{
 		Columns: []tsq.BoundColumn[flagRow]{id, flag}, PrimaryKey: id, AutoIncrement: true,
-		ColumnSpecs: []tsqdialect.ColumnSpec{idSpec, {Name: "flag", Type: tsqdialect.ColumnType{Kind: tsqdialect.KindInt, Bits: 64, Nullable: true}, Default: "0", Fill: tsqdialect.FillDefault}},
+		ColumnSpecs: []tsqdialect.ColumnSpec{idSpec, {Name: "flag", Type: tsqdialect.ColumnType{Kind: tsqdialect.ColumnKindInt, Bits: 64, Nullable: true}, Default: "0", Fill: tsqdialect.FillDefault}},
 	})
 }
 

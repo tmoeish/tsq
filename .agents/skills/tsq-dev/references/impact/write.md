@@ -84,7 +84,7 @@
 
 ## 改了批量写（`rows.go`）
 
-- 硬删的短缺（`hardDeleteShortfall`）按回读分两类：还在的行是版本冲突，不在的行是 `RowStateError{RowExists}`，
+- 硬删的短缺（`hardDeleteShortfall`）按回读分两类：还在的行是版本冲突，不在的行是 `RowStateError{RowExisting}`，
   没有 `version` 列的表也查——行级硬删和 `BatchHardDeleteByPK` 必须对"行不存在"说同一件事。按主键删时数据库按
   自己的排序规则匹配键（MySQL `_ci`），`missingKeys` 先比行数、再按不分大小写和尾部空格比，别退回 Go `==`。
 

@@ -39,7 +39,7 @@ var tags = func() tagTable {
 		PrimaryKey: c.Name,
 		ColumnSpecs: []tsqdialect.ColumnSpec{
 			{Name: "name", Type: tsqdialect.ColumnType{RawType: "TEXT COLLATE NOCASE"}, PrimaryKey: true},
-			{Name: "label", Type: tsqdialect.ColumnType{Kind: tsqdialect.KindString, Size: 64}},
+			{Name: "label", Type: tsqdialect.ColumnType{Kind: tsqdialect.ColumnKindString, Size: 64}},
 		},
 	})
 
@@ -158,8 +158,8 @@ func TestAliasedTableBindsItsColumns(t *testing.T) {
 	}
 
 	q := Select(User_ID).From(Users).
-		InnerJoin(other, User_ID.EQ(User_ID.WithTable(other))).
-		Where(User_Name.WithTable(other).IsNotNull()).
+		InnerJoin(other, User_ID.EQ(User_ID.Rebind(other))).
+		Where(User_Name.Rebind(other).IsNotNull()).
 		MustBuild()
 
 	sql, _ := sqlOf(t, q, onSQLite)
@@ -231,7 +231,7 @@ func TestGetByCachesItsQuery(t *testing.T) {
 	}
 
 	alias := Users.As("u")
-	if got, err := alias.GetBy(ctx, rt, User_Email.WithTable(alias), "ada@x"); err != nil || got.ID != row.ID {
+	if got, err := alias.GetBy(ctx, rt, User_Email.Rebind(alias), "ada@x"); err != nil || got.ID != row.ID {
 		t.Fatalf("GetBy through an alias = %+v, %v", got, err)
 	}
 
@@ -315,8 +315,8 @@ var (
 		PrimaryKey:    Event_ID,
 		AutoIncrement: true,
 		ColumnSpecs: []tsqdialect.ColumnSpec{
-			{Name: "id", Type: tsqdialect.ColumnType{Kind: tsqdialect.KindInt, Bits: 64}, PrimaryKey: true, AutoIncrement: true},
-			{Name: "at", Type: tsqdialect.ColumnType{Kind: tsqdialect.KindTime}},
+			{Name: "id", Type: tsqdialect.ColumnType{Kind: tsqdialect.ColumnKindInt, Bits: 64}, PrimaryKey: true, AutoIncrement: true},
+			{Name: "at", Type: tsqdialect.ColumnType{Kind: tsqdialect.ColumnKindTime}},
 		},
 		Indexes: []IndexSpec{{Name: "ux_events_at", Columns: []string{"at"}, Unique: true}},
 	})

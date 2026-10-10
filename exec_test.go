@@ -548,7 +548,7 @@ func TestUpsertMatchesLiveRowsOfASoftDeletedUniqueIndex(t *testing.T) {
 		t.Fatal("expected a key that is not unique to be refused")
 	}
 
-	if err := Users.Upsert(ctx, rt, &user{}, OnConflict(User_Email.WithTable(Users.As("u")))); err == nil {
+	if err := Users.Upsert(ctx, rt, &user{}, OnConflict(User_Email.Rebind(Users.As("u")))); err == nil {
 		t.Fatal("expected an aliased key column to be refused")
 	}
 }
@@ -1030,7 +1030,7 @@ func TestConditionalWrites(t *testing.T) {
 	bad := map[string]MutationStage[user]{
 		"foreign table":  UpdateTable(Users).Set(User_Name, Val("x")).Where(Order_Amount.GT(Val(int64(1)))),
 		"version target": UpdateTable(Users).Set(User_Version, Val(int64(1))).Where(And()),
-		"aliased target": UpdateTable(Users).Set(User_Name.WithTable(Users.As("u")), Val("x")).Where(And()),
+		"aliased target": UpdateTable(Users).Set(User_Name.Rebind(Users.As("u")), Val("x")).Where(And()),
 		"assigned twice": UpdateTable(Users).Set(User_Name, Val("x")).Set(User_Name, Val("y")).Where(And()),
 		// A nil table or column is a build error, not a panic while building.
 		"nil table":  UpdateTable[user](nil).Set(User_Name, Val("x")).Where(And()),
@@ -1074,6 +1074,15 @@ func TestTracersAndExecutorScopes(t *testing.T) {
 
 	if len(ops) != 2 {
 		t.Fatalf("a wrapped executor must not trace, got %v", ops)
+	}
+
+	// Exists is its own operation: a tracer must tell it from reading the row.
+	if _, err := QueryByID.Exists(ctx, rt, User_ID.Bind(1)); err != nil {
+		t.Fatal(err)
+	}
+
+	if len(ops) != 3 || ops[2] != TraceOpExists {
+		t.Fatalf("Exists traced as %v", ops)
 	}
 
 	if _, err := WrapExecutor(nil, rt.Dialect()); err == nil {
@@ -1196,9 +1205,9 @@ var (
 		PrimaryKey:    Slugged_ID,
 		AutoIncrement: true,
 		ColumnSpecs: []tsqdialect.ColumnSpec{
-			{Name: "id", Type: tsqdialect.ColumnType{Kind: tsqdialect.KindInt, Bits: 64}, PrimaryKey: true, AutoIncrement: true},
-			{Name: "title", Type: tsqdialect.ColumnType{Kind: tsqdialect.KindString, Size: 64}},
-			{Name: "slug", Type: tsqdialect.ColumnType{Kind: tsqdialect.KindString, Size: 64}, Fill: tsqdialect.FillGenerated, Generated: "LOWER(title)"},
+			{Name: "id", Type: tsqdialect.ColumnType{Kind: tsqdialect.ColumnKindInt, Bits: 64}, PrimaryKey: true, AutoIncrement: true},
+			{Name: "title", Type: tsqdialect.ColumnType{Kind: tsqdialect.ColumnKindString, Size: 64}},
+			{Name: "slug", Type: tsqdialect.ColumnType{Kind: tsqdialect.ColumnKindString, Size: 64}, Fill: tsqdialect.FillGenerated, Generated: "LOWER(title)"},
 		},
 	})
 )
@@ -1338,9 +1347,9 @@ var (
 		PrimaryKey:    Blob_ID,
 		AutoIncrement: true,
 		ColumnSpecs: []tsqdialect.ColumnSpec{
-			{Name: "id", Type: tsqdialect.ColumnType{Kind: tsqdialect.KindInt, Bits: 64}, PrimaryKey: true, AutoIncrement: true},
-			{Name: "data", Type: tsqdialect.ColumnType{Kind: tsqdialect.KindBytes}},
-			{Name: "raw", Type: tsqdialect.ColumnType{Kind: tsqdialect.KindBytes}},
+			{Name: "id", Type: tsqdialect.ColumnType{Kind: tsqdialect.ColumnKindInt, Bits: 64}, PrimaryKey: true, AutoIncrement: true},
+			{Name: "data", Type: tsqdialect.ColumnType{Kind: tsqdialect.ColumnKindBytes}},
+			{Name: "raw", Type: tsqdialect.ColumnType{Kind: tsqdialect.ColumnKindBytes}},
 		},
 	})
 )
@@ -1382,7 +1391,7 @@ func TestRowsReadThroughACTEArePartial(t *testing.T) {
 
 	cte := CTE("recent", Select(Order_ID, Order_UserID).From(Orders))
 
-	read, err := Select(Order_ID.WithTable(cte), Order_UserID.WithTable(cte)).From(cte).MustBuild().Get(ctx, rt)
+	read, err := Select(Order_ID.Rebind(cte), Order_UserID.Rebind(cte)).From(cte).MustBuild().Get(ctx, rt)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -1437,7 +1446,7 @@ func TestQueriesRefuseWhatTheyCannotRun(t *testing.T) {
 	}
 
 	cte := CTE("outer_ref", Select(Order_ID).From(Orders).Correlate(Users).Where(Order_UserID.EQ(User_ID)))
-	if _, err := Select(User_ID).From(Users).InnerJoin(cte, Order_ID.WithTable(cte).EQ(User_ID)).Build(); err == nil || !strings.Contains(err.Error(), "cannot use Correlate") {
+	if _, err := Select(User_ID).From(Users).InnerJoin(cte, Order_ID.Rebind(cte).EQ(User_ID)).Build(); err == nil || !strings.Contains(err.Error(), "cannot use Correlate") {
 		t.Errorf("Correlate in a CTE: Build = %v", err)
 	}
 
@@ -1524,9 +1533,9 @@ var (
 		Columns:    []BoundColumn[account]{Account_Code, Account_Email, Account_Name},
 		PrimaryKey: Account_Code,
 		ColumnSpecs: []tsqdialect.ColumnSpec{
-			{Name: "code", Type: tsqdialect.ColumnType{Kind: tsqdialect.KindString, Size: 16}, PrimaryKey: true},
-			{Name: "email", Type: tsqdialect.ColumnType{Kind: tsqdialect.KindString, Size: 64}},
-			{Name: "name", Type: tsqdialect.ColumnType{Kind: tsqdialect.KindString, Size: 64}},
+			{Name: "code", Type: tsqdialect.ColumnType{Kind: tsqdialect.ColumnKindString, Size: 16}, PrimaryKey: true},
+			{Name: "email", Type: tsqdialect.ColumnType{Kind: tsqdialect.ColumnKindString, Size: 64}},
+			{Name: "name", Type: tsqdialect.ColumnType{Kind: tsqdialect.ColumnKindString, Size: 64}},
 		},
 		Indexes: []IndexSpec{{Name: "ux_accounts_email", Columns: []string{"email"}, Unique: true}},
 	})
@@ -1591,8 +1600,8 @@ var (
 		Columns:    []BoundColumn[badge]{Badge_Code, Badge_Color},
 		PrimaryKey: Badge_Code,
 		ColumnSpecs: []tsqdialect.ColumnSpec{
-			{Name: "code", Type: tsqdialect.ColumnType{Kind: tsqdialect.KindString, Size: 8}, PrimaryKey: true},
-			{Name: "color", Type: tsqdialect.ColumnType{Kind: tsqdialect.KindString, Size: 8, Nullable: true}, Default: "'red'", Fill: tsqdialect.FillDefault},
+			{Name: "code", Type: tsqdialect.ColumnType{Kind: tsqdialect.ColumnKindString, Size: 8}, PrimaryKey: true},
+			{Name: "color", Type: tsqdialect.ColumnType{Kind: tsqdialect.ColumnKindString, Size: 8, Nullable: true}, Default: "'red'", Fill: tsqdialect.FillDefault},
 		},
 	})
 )
@@ -1680,8 +1689,8 @@ var (
 		PrimaryKey:    Swatch_ID,
 		AutoIncrement: true,
 		ColumnSpecs: []tsqdialect.ColumnSpec{
-			{Name: "id", Type: tsqdialect.ColumnType{Kind: tsqdialect.KindInt, Bits: 64}, PrimaryKey: true, AutoIncrement: true},
-			{Name: "color", Type: tsqdialect.ColumnType{Kind: tsqdialect.KindString, Size: 8, Nullable: true}, Default: "'red'", Fill: tsqdialect.FillDefault},
+			{Name: "id", Type: tsqdialect.ColumnType{Kind: tsqdialect.ColumnKindInt, Bits: 64}, PrimaryKey: true, AutoIncrement: true},
+			{Name: "color", Type: tsqdialect.ColumnType{Kind: tsqdialect.ColumnKindString, Size: 8, Nullable: true}, Default: "'red'", Fill: tsqdialect.FillDefault},
 		},
 	})
 )
@@ -1829,7 +1838,7 @@ func TestUpsertUpdatesOnlyTheNamedColumns(t *testing.T) {
 		"the key":         OnConflict(User_Email).Update(User_Email),
 		"the primary key": OnConflict(User_Email).Update(User_ID),
 		"a managed one":   OnConflict(User_Email).Update(User_Version),
-		"another alias":   OnConflict(User_Email).Update(User_Name.WithTable(Users.As("u"))),
+		"another alias":   OnConflict(User_Email).Update(User_Name.Rebind(Users.As("u"))),
 	} {
 		if err := Users.Upsert(ctx, rt, &user{Name: "c", Email: "c@example.com"}, conflict); err == nil {
 			t.Errorf("Update naming %s: want it refused", name)
@@ -1851,7 +1860,7 @@ func TestDeleteByPKNamesTheKeysItDidNotDelete(t *testing.T) {
 	err := Users.BatchHardDeleteByPK(ctx, rt, []int64{users[0].ID, 404, users[0].ID, users[1].ID})
 
 	state, ok := errors.AsType[*RowStateError](err)
-	if !ok || state.Need != RowExists || len(state.Keys) != 1 || state.Keys[0] != int64(404) || state.Expected != 3 || state.Actual != 2 {
+	if !ok || state.Need != RowExisting || len(state.Keys) != 1 || state.Keys[0] != int64(404) || state.Expected != 3 || state.Actual != 2 {
 		t.Fatalf("BatchHardDeleteByPK = %v; want a RowStateError naming 404 only", err)
 	}
 
@@ -1907,7 +1916,7 @@ func TestHardDeleteOfAMissingRowSaysSo(t *testing.T) {
 	}
 
 	err := Orders.HardDelete(ctx, rt, gone)
-	if state, ok := errors.AsType[*RowStateError](err); !ok || state.Op != TraceOpHardDelete || state.Need != RowExists {
+	if state, ok := errors.AsType[*RowStateError](err); !ok || state.Op != TraceOpHardDelete || state.Need != RowExisting {
 		t.Fatalf("second HardDelete = %v; want a RowStateError", err)
 	}
 

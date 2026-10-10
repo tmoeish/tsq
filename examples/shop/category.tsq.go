@@ -45,7 +45,7 @@ func newCategoryTable() CategoryTable {
 			{
 				Name: "id",
 				Type: tsqdialect.ColumnType{
-					Kind: tsqdialect.KindInt,
+					Kind: tsqdialect.ColumnKindInt,
 					Bits: 64,
 				},
 				PrimaryKey:    true,
@@ -54,14 +54,14 @@ func newCategoryTable() CategoryTable {
 			{
 				Name: "name",
 				Type: tsqdialect.ColumnType{
-					Kind: tsqdialect.KindString,
+					Kind: tsqdialect.ColumnKindString,
 					Size: 64,
 				},
 			},
 			{
 				Name: "parent_id",
 				Type: tsqdialect.ColumnType{
-					Kind:     tsqdialect.KindInt,
+					Kind:     tsqdialect.ColumnKindInt,
 					Bits:     64,
 					Nullable: true,
 				},
@@ -82,8 +82,8 @@ func (t CategoryTable) As(alias string) CategoryTable {
 
 	return CategoryTable{
 		TableOf:  a,
-		ID:       t.ID.WithTable(a),
-		Name:     t.Name.WithTable(a),
+		ID:       t.ID.Rebind(a),
+		Name:     t.Name.Rebind(a),
 		ParentID: tsq.RebindNull(t.ParentID, a),
 	}
 }

@@ -38,8 +38,8 @@
   扫描失败）；单值查询走 `SelectValue`。
 - **CTE 输出列重名在 `Build` 拒绝，不加起别名的 API**（2026-09-28）：`SUM(amount)` 与 `MAX(amount)` 都叫 `amount`，
   而 CTE 的列靠名字找。普通 SELECT 里的重名改写成 `tsq_c<位置>`（读行按位置），CTE 里不能这么做——那会让
-  `amount.WithTable(cte)` 静默拿到第一个。
-- **派生选择项写 `AS <Name()>`，不用 JSON 名**（2026-09-22）：CTE 的列靠 `源列.WithTable(cte)` 按源列名查找，集合操作的
+  `amount.Rebind(cte)` 静默拿到第一个。
+- **派生选择项写 `AS <Name()>`，不用 JSON 名**（2026-09-22）：CTE 的列靠 `源列.Rebind(cte)` 按源列名查找，集合操作的
   `ORDER BY` 也按它。`ResultColumn` 因此有 `Asc` / `Desc`（排序不是谓词），按选中的投影给集合操作排序。
 - **`driver.Value` 是定义类型**（2026-09-22）：手写的 `interface{ Value() (any, error) }` 永远不匹配 `driver.Valuer`，两处
   NULL 检查因此从未生效。只断言 `driver.Valuer`，门是 `TestValuersAreComparedByTheirValue`。

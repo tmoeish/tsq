@@ -41,12 +41,12 @@ const (
 	CapabilitySkipLocked     = tsqdialect.CapabilitySkipLocked
 	CapabilityFullTextSearch = tsqdialect.CapabilityFullTextSearch
 
-	KindBool   = tsqdialect.KindBool
-	KindBytes  = tsqdialect.KindBytes
-	KindFloat  = tsqdialect.KindFloat
-	KindInt    = tsqdialect.KindInt
-	KindString = tsqdialect.KindString
-	KindTime   = tsqdialect.KindTime
+	ColumnKindBool   = tsqdialect.ColumnKindBool
+	ColumnKindBytes  = tsqdialect.ColumnKindBytes
+	ColumnKindFloat  = tsqdialect.ColumnKindFloat
+	ColumnKindInt    = tsqdialect.ColumnKindInt
+	ColumnKindString = tsqdialect.ColumnKindString
+	ColumnKindTime   = tsqdialect.ColumnKindTime
 
 	FillCaller    = tsqdialect.FillCaller
 	FillDefault   = tsqdialect.FillDefault
@@ -326,7 +326,7 @@ func ColumnDefinitionSQL(dialect Dialect, column ColumnSpec) (string, error) {
 // column with no limit the engines agree on: a raw type, or a size past what a
 // VARCHAR declares, which is a TEXT family type there.
 func EnforcedStringSize(column ColumnSpec) int {
-	if column.Type.Kind != KindString || column.Type.RawType != "" {
+	if column.Type.Kind != ColumnKindString || column.Type.RawType != "" {
 		return 0
 	}
 
@@ -353,7 +353,7 @@ func RangeCheckName(column string) string { return "ck_" + column }
 // where the column needs none.
 func RangeCheck(dialect Dialect, column ColumnSpec) (string, bool) {
 	t := column.Type
-	if t.Kind != KindInt || t.RawType != "" || column.PrimaryKey || column.AutoIncrement || column.Generated != "" {
+	if t.Kind != ColumnKindInt || t.RawType != "" || column.PrimaryKey || column.AutoIncrement || column.Generated != "" {
 		return "", false
 	}
 
@@ -473,7 +473,7 @@ func DefaultSQL(dialect Dialect, column ColumnSpec) string {
 	// A boolean default is written as the engine takes it: PostgreSQL takes TRUE
 	// and FALSE and refuses 1 and 0 ("default expression is of type integer"),
 	// where MySQL and SQLite take either.
-	if column.Type.Kind == KindBool && column.Type.RawType == "" && dialect.Name() == Postgres {
+	if column.Type.Kind == ColumnKindBool && column.Type.RawType == "" && dialect.Name() == Postgres {
 		switch strings.TrimSpace(column.Default) {
 		case "1":
 			return "TRUE"
@@ -482,7 +482,7 @@ func DefaultSQL(dialect Dialect, column ColumnSpec) string {
 		}
 	}
 
-	if column.Type.Kind != KindTime || column.Type.RawType != "" || !IsCurrentTime(column.Default) {
+	if column.Type.Kind != ColumnKindTime || column.Type.RawType != "" || !IsCurrentTime(column.Default) {
 		return column.Default
 	}
 
@@ -689,7 +689,7 @@ func AdoptSpelling(d Dialect, inspected Column, same Spelling, declared ColumnSp
 // failed validation on the next start.
 func storageType(dialect Dialect, column ColumnSpec) ColumnType {
 	t := column.Type
-	if dialect.Name() == Postgres && column.AutoIncrement && t.RawType == "" && t.Kind == KindInt && t.Unsigned &&
+	if dialect.Name() == Postgres && column.AutoIncrement && t.RawType == "" && t.Kind == ColumnKindInt && t.Unsigned &&
 		(t.Bits <= 0 || t.Bits >= 64) {
 		t.Unsigned, t.Bits = false, 64
 	}

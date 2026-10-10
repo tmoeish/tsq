@@ -6,12 +6,12 @@ type ColumnKind string
 
 // The column kinds.
 const (
-	KindBool   ColumnKind = "bool"
-	KindBytes  ColumnKind = "bytes"
-	KindFloat  ColumnKind = "float"
-	KindInt    ColumnKind = "int"
-	KindString ColumnKind = "string"
-	KindTime   ColumnKind = "time"
+	ColumnKindBool   ColumnKind = "bool"
+	ColumnKindBytes  ColumnKind = "bytes"
+	ColumnKindFloat  ColumnKind = "float"
+	ColumnKindInt    ColumnKind = "int"
+	ColumnKindString ColumnKind = "string"
+	ColumnKindTime   ColumnKind = "time"
 )
 
 // ColumnType describes a column type independently of any engine. RawType, when
