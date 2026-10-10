@@ -157,11 +157,20 @@ def commits_since(previous: Version | None) -> list[tuple[str, str]]:
     return entries
 
 
+# git 的空树对象：任何仓库里都存在，`git diff <它> HEAD` 列出 HEAD 的全部文件。
+EMPTY_TREE: Final = "4b825dc642cb6eb9a060e54bf8d69288fbee4904"
+
+
 def user_visible_changes(previous: Version | None) -> list[str]:
-    """上一个 tag 之后，改动里真正会让使用者拿到不同东西的那些文件。"""
-    span = f"{previous}..HEAD" if previous is not None else "HEAD"
+    """上一个 tag 之后，改动里真正会让使用者拿到不同东西的那些文件。
+
+    本主版本线还没有 tag（新主版本的第一次发版）时，对这条线的使用者来说每个文件都是新的，
+    所以和空树比。这里曾写成单独的 `HEAD`：`git diff HEAD` 比的是工作区和 HEAD，提交之后
+    恒为空，于是 v5.0.0 被判成"没有使用者可见的改动"而拒绝发版（2026-10-10）。
+    """
+    base = str(previous) if previous is not None else EMPTY_TREE
     raw = git_output(
-        ["diff", "--name-only", "-z", "--diff-filter=ACDMRTUXB", span]
+        ["diff", "--name-only", "-z", "--diff-filter=ACDMRTUXB", base, "HEAD"]
     ).decode("utf-8", errors="surrogateescape")
 
     visible: list[str] = []
