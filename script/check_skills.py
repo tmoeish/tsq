@@ -20,6 +20,9 @@
 另一半和本波改了什么无关、**无条件**跑：`change-impact.md` 与 `memory.md` 是索引，子文件在
 `impact/`、`memory/` 下。速查漏一条触发器、路由表漏一份子文件，读的人就以为自己看过了全部，
 所以索引与子文件对不上时直接失败，这一半不提供豁免。
+
+同样无条件的还有两份 `SKILL.md` 的 frontmatter：`gh skill install` 用严格的 YAML 解析它，
+Claude Code 不是，所以本地用着好好的技能在别人的项目里装不上，而本仓里没有任何东西会报错。
 """
 
 from __future__ import annotations
@@ -158,6 +161,8 @@ TRIGGERS: Final = (
 
 
 TRIGGER_HEADING: Final = re.compile(r"^## (?P<title>.+)$")
+FRONTMATTER_FIELD: Final = re.compile(r"^\s*(?P<key>[\w-]+):[ \t]+(?P<value>\S.*)$")
+PLAIN_SCALAR_START: Final = frozenset("-?:,[]{}#&*!|>'\"%@`")
 INDEX_ENTRY: Final = re.compile(r"^### `(?P<file>impact/[a-z-]+\.md)`$")
 INDEX_BULLET: Final = re.compile(r"^- (?P<title>.+)$")
 
@@ -230,6 +235,44 @@ def check_index_sync() -> list[str]:
     return failures
 
 
+def check_frontmatter() -> list[str]:
+    """frontmatter 的每个值要么加引号，要么是严格 YAML 认得的纯标量。
+
+    纯标量里出现 `: ` 或 ` #`、以指示符开头或以 `:` 结尾，严格解析器就会读成映射或注释——
+    `//tsq: directives` 让 `gh skill install` 报 "mapping values are not allowed"。
+    """
+    failures: list[str] = []
+    for skill in (USER_SKILL_DIR, DEV_SKILL_DIR):
+        path = skill / "SKILL.md"
+        lines = read(path)
+        if not lines or lines[0] != "---" or "---" not in lines[1:]:
+            failures.append(f"  {path} 没有以 `---` 包住的 frontmatter")
+            continue
+
+        end = lines.index("---", 1)
+        for number, line in enumerate(lines[1:end], start=2):
+            field = FRONTMATTER_FIELD.match(line)
+            if not field:
+                continue
+
+            value = field.group("value")
+            if value[0] in "'\"|>":
+                continue
+
+            if (
+                value[0] in PLAIN_SCALAR_START
+                or ": " in value
+                or " #" in value
+                or value.endswith(":")
+            ):
+                failures.append(
+                    f"  {path}:{number} `{field.group('key')}` 不是合法的 YAML 纯标量，"
+                    "给它加双引号"
+                )
+
+    return failures
+
+
 def skipped() -> frozenset[str]:
     raw = os.environ.get(SKIP_ENV, "")
 
@@ -243,6 +286,13 @@ def satisfied(required: Iterable[Path], paths: set[Path]) -> bool:
 
 
 def main() -> int:
+    malformed = check_frontmatter()
+    if malformed:
+        print("技能的 frontmatter 不是严格 YAML，gh skill install 会拒装（无条件检查）：\n")
+        print("\n".join(malformed))
+
+        return 1
+
     unsynced = check_index_sync()
     if unsynced:
         print("技能的索引和子文件对不上了（这一半无条件检查，不提供豁免）：\n")
