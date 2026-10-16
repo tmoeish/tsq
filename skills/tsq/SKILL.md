@@ -1,6 +1,6 @@
 ---
 name: tsq
-description: Use this skill when working in a Go project that uses or adopts TSQ (github.com/tmoeish/tsq/v5) - annotating structs with //tsq: directives, running the tsq CLI (tsq gen, --check, --dry-run, tsq version), wiring tsq.Open / tsq.NewRuntime and schema policies, or writing typed queries and writes - CRUD, upsert, batch writes, bulk UPDATE / DELETE by condition, soft delete, optimistic locking, pagination, keyset paging, keyword and full-text search, subqueries, CASE, CTE, set operations, row locks, transactions with retry, tracing and dialect differences between MySQL, PostgreSQL and SQLite.
+description: "Use this skill when working in a Go project that uses or adopts TSQ (github.com/tmoeish/tsq/v5) - annotating structs with //tsq: directives, running the tsq CLI (tsq gen, --check, --dry-run, tsq version), wiring tsq.Open / tsq.NewRuntime and schema policies, or writing typed queries and writes - CRUD, upsert, batch writes, bulk UPDATE / DELETE by condition, soft delete, optimistic locking, pagination, keyset paging, keyword and full-text search, subqueries, CASE, CTE, set operations, row locks, transactions with retry, tracing and dialect differences between MySQL, PostgreSQL and SQLite."
 license: MIT
 compatibility: Intended for GitHub Copilot, Claude Code, and Gemini CLI in Go repositories where the agent can inspect files and optionally run Go or tsq commands.
 metadata:

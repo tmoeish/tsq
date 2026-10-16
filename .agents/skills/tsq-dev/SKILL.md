@@ -101,6 +101,8 @@ TSQ 由三件东西组成，它们共用一个仓库和一个版本号：
   阻止了第三次发生，那次修复才算完成。
 - **`make skill-check` 无条件比对索引与子文件**：速查漏一条触发器、多一条已删的触发器、路由表漏
   一份子文件都会红——索引是替代整份加载的东西，漏一条等于那条耦合不存在。这一半不提供豁免。
+- **`make skill-check` 同样无条件校验两份 `SKILL.md` 的 frontmatter**：值要么加双引号，要么是严格 YAML 的
+  纯标量（不含 `: `、` #`）。`gh skill install` 严格解析，Claude Code 不，本地用着正常不说明装得上。
 - `make skill-check` 还把最容易忘的几条耦合钉死了；它没覆盖的部分靠这一节。
 - **内存里的条目是有寿命的。** 一件事了结之后那条记录是删是留，判据只有一条：删掉之后
   有人会不会重犯、或者重新调查一遍。搁置项处理完就删，事故根因在有门禁挡着之后压成一行，
@@ -121,7 +123,7 @@ make examples-run     # 再把每一章跑一遍
 make gen-check        # 生成物是不是当前源码的输出（tsq gen --check）
 make api-check        # 对外 Go 契约有没有偏离快照
 make api-snapshot     # 刷新快照
-make skill-check      # 索引与子文件对得上，且技能跟上了代码
+make skill-check      # 索引与子文件对得上、frontmatter 是严格 YAML，且技能跟上了代码
 make doc-check        # 文档里的 make 目标和 tsq.* 符号都存在、没有退役的 v4 写法、英文侧没有中文、
                       # skills/tsq 覆盖全部对外表面（导出符号、CLI flag、指令、托管角色、db tag 选项）
 make memory-check     # 这波有没有留下项目内存，以及索引加 memory/ 合计有没有超出行数上限（先压缩，压不动了再抬，理由写进 check_change_log.py）

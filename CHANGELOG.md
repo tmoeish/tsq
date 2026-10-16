@@ -7,6 +7,12 @@
 格式基于 [Keep a Changelog](https://keepachangelog.com/zh-CN/1.0.0/)，
 项目遵循 [语义化版本控制](https://semver.org/lang/zh-CN/)。
 
+## [未发布]
+
+### 修复
+
+- `gh skill install tmoeish/tsq skills/tsq` 报 `invalid frontmatter YAML: yaml: line 2: mapping values are not allowed in this context`：`skills/tsq/SKILL.md` 的 description 里有 `//tsq: directives`，严格的 YAML 把其中的 `: ` 当成键值分隔符。description 现在加了引号。`gh skill install` 默认装最新 tag，下一个版本发出之前，用 `--pin <修复合入后 main 上的 commit SHA>` 安装。
+
 ## [5.0.0] - 2026-10-10
 
 v5 是一个重新设计过的版本，不提供对 v4 的兼容层：没有别名、没有迁移命令、没有旧注解语法的读取器。
