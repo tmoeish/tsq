@@ -8,7 +8,7 @@ require (
 	github.com/mattn/go-sqlite3 v1.14.52
 	github.com/serenize/snaker v0.0.0-20201027110005-a7ad2135616e
 	github.com/stretchr/testify v1.12.1
-	golang.org/x/mod v0.41.0
+	golang.org/x/mod v0.42.0
 	golang.org/x/tools v0.51.0
 	modernc.org/sqlite v1.59.0
 	mvdan.cc/gofumpt v0.12.0
