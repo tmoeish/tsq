@@ -91,6 +91,7 @@ gh api repos/tmoeish/tsq/rulesets/<id> --jq '.rules[] | select(.type=="required_
 
 `go.mod`、`.github/workflows/go.yml` 的 `GO_VERSION` 与 matrix、
 `CLAUDE.md` / `AGENTS.md` 里写的版本号，全部一起改。golangci-lint 也要升到兼容版本
-（`Makefile` 的 `LINT_BIN` 那行钉死了版本）。
+（`Makefile` 的 `LINT_VERSION` 钉死了版本，二进制名带版本号，改了就自动重装）。"兼容"要覆盖本机的
+Go **补丁**版本，不只是 CI 钉的那个：lint 读不了更新的 export data 时只在本地报 typecheck，CI 看不见。
 
 matrix 一改，`Test` 的检查名就跟着变——所以 ruleset 的必需检查里没有它，见「改了 CI 的 job 名字」。

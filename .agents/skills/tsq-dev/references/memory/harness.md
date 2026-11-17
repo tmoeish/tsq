@@ -50,11 +50,12 @@ v4.10.1 一发，main 的 `release-check` 把 4.x 的 buildinfo 判成倒退、�
 
 CI 里 `@latest` 装的工具在它发新版本那天让每个 PR 变红（goreleaser v2.18.1 要求更新的 Go），release job 的 `version: latest` 更是只在 **tag 推送之后**才跑、不可撤销；规则在 `../impact/harness.md` § 改了 CI 里安装的工具。
 链接器对找不到的 `-X` 符号**静默忽略**（三份配置各犯过一次）：`release-check` 核对路径，CI 的 `Build` 运行二进制核对值——**静态检查证明路径对，跑产物证明值到了，缺一不可。**
+**本机 Go 比 CI 新，本地 lint 就坏**（2026-11-17）：golangci-lint v2.13.1 读不了 Go 1.27.4 标准库的 export data（报成 `buildinfo.go` 的 typecheck：`export data version 5 is greater than maximum supported version 4`），用新 Go 重编 lint 也没用——能读到哪一版由 lint 依赖的 x/tools 决定。v5.0.1 的 `make release` 卡在这里，靠 `GOTOOLCHAIN=go1.27.0` 绕过；CI 钉着 1.27.0 所以看不见。另一半：`go-get-tool` 只看文件在不在，不带版本的 `bin/golangci-lint` 升了版本也不重装，所以文件名现在带 `LINT_VERSION`。再见到 typecheck 报标准库，先升 golangci-lint。
 
 ## 决定：两份技能按所有权拆开；使用者技能按主题拆、按表面全集守 (2026-08-21，2026-10-10)
 
 两份按所有权拆：同一份服务两拨读者时，一方会把另一方要的细节当"太内部"删掉。`skills/tsq` 曾是 1700 行的单文件，agent 一加载就全进上下文，而 93 个导出符号一次都没出现（`IsDuplicateKeyError`、`RetryPolicy`、`Tracer`……）——"新功能没写进技能"在 diff 里看不出。现在 `SKILL.md` 只是路由表，参考按主题拆成十五份，`doc-check` 的 `check_skill_coverage` 从权威来源读出导出符号、CLI flag、指令、托管角色、`db` tag 选项的全集逐个要求出现；否掉"按 API 自动生成参考"（契约要讲语义和陷阱，符号表讲不了）。
-**`skills/tsq` 的 frontmatter 从 #178 起就装不上**（2026-10-11 报告）：description 里的 `//tsq: directives` 在纯标量里构成 `: `，`gh skill install` 的严格 YAML 报 "mapping values are not allowed"；Claude Code 的宽松解析照读不误，所以本仓里没人发现。gh 默认装最新 tag，修复要随下一个 tag 才到使用者手里（之前只能 `--pin <commit SHA>`，它不接受分支名）。门：`check_skills.py` 的 `check_frontmatter`。
+**`skills/tsq` 的 frontmatter 从 #178 起就装不上**（2026-10-11 报告）：description 里的 `//tsq: directives` 在纯标量里构成 `: `，`gh skill install` 的严格 YAML 报 "mapping values are not allowed"；Claude Code 的宽松解析照读不误，所以本仓里没人发现。gh 默认装最新 tag，所以修复要随 tag（v5.0.1）才到使用者手里，之前只能 `--pin <tag 或 commit SHA>`（不接受分支名）。门：`check_skills.py` 的 `check_frontmatter`。
 
 ## 决定：变更影响和项目内存拆成"索引 + 子文件"，其余几份不拆 (2026-09-22)
 

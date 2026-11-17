@@ -82,7 +82,9 @@ make release             # 真的发
    `bin/tsq-gen`，**故意不带 `$(LDFLAGS)`**：`bin/tsq` 的版本号来自 `git describe`，
    而即将发布的 tag 那一刻还不存在，用它生成会让 `release-check` 永远失败（想写对头部
    要先打 tag，想打 tag 要先过 release-check）。见 `memory/codegen.md` 的"生成器不能带 `git describe` 的版本号"。
-8. `make harness`——全绿才继续。
+8. `make harness`——全绿才继续。它用**本机**的 Go 跑，不是 CI 钉的那个：本机 Go 补丁版本更新而 golangci-lint
+   没跟上时，lint 报一条落在标准库上的 typecheck，发版停在这里（v5.0.1 就是）。先升 `Makefile` 的
+   `LINT_VERSION`；来不及就 `GOTOOLCHAIN=<CI 的 GO_VERSION> make release`。见 `memory/harness.md`。
 9. 提交，推 release 分支，开 PR，开启自动合并。PR 正文是发版条目，超过 GitHub 的 65536 字符上限时截断并指向
    CHANGELOG（大版本的条目会超）。
 10. 等 CI 全绿、PR 被 squash 合入。

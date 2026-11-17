@@ -30,10 +30,15 @@ LOCALBIN = ${PROJECT_DIR}/bin
 $(LOCALBIN):
 	mkdir -p $(LOCALBIN)
 
-LINT_BIN = $(LOCALBIN)/golangci-lint
+# The version is part of the file name: go-get-tool only installs when the file is
+# missing, so an unversioned bin/golangci-lint survived every version bump and kept
+# running the old linter. golangci-lint must also be new enough to read the export
+# data of the local Go patch release, not only of the GO_VERSION CI pins.
+LINT_VERSION = v2.15.0
+LINT_BIN = $(LOCALBIN)/golangci-lint-$(LINT_VERSION)
 FMT_FIX_LINTERS = modernize,tagalign,wsl_v5
 $(LINT_BIN): $(LOCALBIN)
-	$(call go-get-tool,$(LINT_BIN),github.com/golangci/golangci-lint/v2/cmd/golangci-lint@v2.13.1)
+	$(call go-get-tool,$(LINT_BIN),github.com/golangci/golangci-lint/v2/cmd/golangci-lint@$(LINT_VERSION))
 
 .PHONY: lint
 lint: $(LINT_BIN) ## Run golangci-lint
@@ -185,7 +190,8 @@ define go-get-tool
 	cd $$TMP_DIR ;\
 	$(GO) mod init tmp ;\
 	echo "Downloading $(2)" ;\
-	GOBIN=$(LOCALBIN) $(GO) install $(2) ;\
+	GOBIN=$$TMP_DIR/bin $(GO) install $(2) ;\
+	mv $$TMP_DIR/bin/* $(1) ;\
 	rm -rf $$TMP_DIR ;\
 	}
 endef
