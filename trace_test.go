@@ -204,7 +204,10 @@ func TestTracersAreHeldToTheirContract(t *testing.T) {
 	go func() { done <- nilContext.Close() }()
 
 	select {
-	case <-done:
+	case err := <-done:
+		if err != nil {
+			t.Errorf("Close after a tracer passed a nil context = %v", err)
+		}
 	case <-time.After(5 * time.Second):
 		t.Fatal("Close did not return after a tracer passed a nil context")
 	}
