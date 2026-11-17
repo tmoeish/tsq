@@ -3,7 +3,7 @@ package buildinfo
 import "runtime"
 
 // version is injected at build time via ldflags.
-var version = "v5.0.0"
+var version = "v5.0.1"
 
 // buildTime is injected at build time via ldflags.
 var buildTime = "unknown"
